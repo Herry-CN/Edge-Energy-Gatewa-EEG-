@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP8266 固件烧录 - 野火官方标准教程操作手册</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f5f5f5; color: #333; line-height: 1.7; }
+  .container { max-width: 860px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 22px; color: #1a1a2e; margin: 20px 0 10px; border-bottom: 3px solid #534AB7; padding-bottom: 8px; }
+  h2 { font-size: 18px; color: #534AB7; margin: 25px 0 12px; padding-left: 12px; border-left: 4px solid #534AB7; }
+  h3 { font-size: 15px; color: #333; margin: 18px 0 8px; }
+  p { margin: 8px 0; }
+  .principle { background: #EEEDFE; border: 1px solid #AFA9EC; border-radius: 8px; padding: 15px 20px; margin: 15px 0; }
+  .principle strong { color: #534AB7; }
+  .step { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px 20px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .step-num { display: inline-block; background: #534AB7; color: #fff; width: 28px; height: 28px; line-height: 28px; text-align: center; border-radius: 50%; font-size: 14px; font-weight: 600; margin-right: 8px; }
+  .warn { background: #FCEBEB; border-left: 4px solid #E24B4A; padding: 10px 15px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+  .warn strong { color: #A32D2D; }
+  .tip { background: #E6F1FB; border-left: 4px solid #378ADD; padding: 10px 15px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+  .tip strong { color: #185FA5; }
+  .ok { background: #EAF3DE; border-left: 4px solid #639922; padding: 10px 15px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+  .ok strong { color: #3B6D11; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { background: #534AB7; color: #fff; padding: 8px 12px; text-align: left; font-weight: 500; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e0e0e0; }
+  tr:nth-child(even) { background: #f9f9f9; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  .b-red { background: #F7C1C1; color: #791F1F; }
+  .b-green { background: #9FE1CB; color: #085041; }
+  .b-amber { background: #FAC775; color: #633806; }
+  .b-blue { background: #B5D4F4; color: #0C447C; }
+  .code { background: #1e1e2e; color: #a6e3a1; padding: 12px 16px; border-radius: 6px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; margin: 10px 0; overflow-x: auto; }
+  .method-tabs { display: flex; gap: 8px; margin: 15px 0; }
+  .method-tab { padding: 8px 16px; border-radius: 6px; cursor: default; font-size: 14px; font-weight: 500; }
+  .tab-active { background: #534AB7; color: #fff; }
+  .tab-inactive { background: #e0e0e0; color: #666; }
+  .method-box { border: 2px solid; border-radius: 8px; padding: 16px 20px; margin: 10px 0; }
+  .method-a { border-color: #378ADD; background: #f8fbff; }
+  .method-b { border-color: #639922; background: #f8fdf4; }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin: 4px 0; }
+  .footer { margin-top: 30px; padding: 15px; background: #f0f0f0; border-radius: 8px; font-size: 12px; color: #666; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>ESP8266 固件烧录 — 野火官方标准教程操作手册</h1>
+
+<div class="principle">
+  <p><strong>核心思路（来自官方教程 PDF）：</strong>开发板板载的 ESP8266 通过 USB 转串口模块连接到电脑，ESP8266 能与电脑正常通讯，控制 IO0 脚接 GND 进入下载模式，烧录工具正确配置相关参数即可烧录固件。</p>
+  <p style="margin-top: 8px;"><strong>关键区别：</strong>CH340 <u>直接</u> 对接 ESP8266，<u>不经过</u> STM32 做数据转发。之前的桥接方案失败就是因为 STM32 转发引入延迟，导致 Flash Download Tool 上传 stub 和切换波特率时失败。</p>
+</div>
+
+<h2>两种直连方法（选一种）</h2>
+
+<div class="method-tabs">
+  <div class="method-tab tab-active">方法 A：板载 CH340 直连（官方教程原版）</div>
+  <div class="method-tab tab-inactive">方法 B：USB-TTL 直连（更简单，你已有硬件）</div>
+</div>
+
+<div class="method-box method-a">
+  <h3 style="color: #185FA5;">方法 A：板载 CH340 直连（完全按教程操作）</h3>
+  <p>用板子自带的 CH340 芯片，拔掉 4 个跳帽，加 2 根杜邦线交叉连接。</p>
+  <p><strong>适用场景：</strong>没有外部 USB-TTL 模块，或想完全按教程操作。</p>
+</div>
+
+<div class="method-box method-b">
+  <h3 style="color: #3B6D11;">方法 B：USB-TTL 直连（推荐！你已有硬件）</h3>
+  <p>用你买回来的 USB-TTL 小板，只需拔 2 个跳帽，接线你已经接好了一部分。</p>
+  <p><strong>适用场景：</strong>已有 USB-TTL 模块（你已买好并接好线）。</p>
+  <p><strong>原理完全一样：</strong>USB-TTL 本质就是一个独立的 CH340，和板载 CH340 功能相同，只是物理位置不同。</p>
+</div>
+
+<p style="background: #FAEEDA; padding: 10px 15px; border-radius: 6px; border: 1px solid #BA7517;">
+  <strong>下面同时列出两种方法的每一步操作，你按自己选的方法执行即可。</strong>
+</p>
+
+<!-- ==================== STEP 1 ==================== -->
+<h2>第 1 步：拔跳帽</h2>
+
+<div class="step">
+  <p><span class="step-num">1</span><strong>方法 A（板载 CH340）：拔 4 个跳帽</strong></p>
+  <table>
+    <tr><th>跳帽位置</th><th>原来连接</th><th>操作</th><th>目的</th></tr>
+    <tr><td>CH340 右侧（靠近 Mini USB）</td><td>CH340 TXD ↔ PA9</td><td><span class="badge b-red">拔掉</span></td><td>断开 CH340 与 STM32 USART1</td></tr>
+    <tr><td>CH340 右侧（靠近 Mini USB）</td><td>CH340 RXD ↔ PA10</td><td><span class="badge b-red">拔掉</span></td><td>断开 CH340 与 STM32 USART1</td></tr>
+    <tr><td>ESP8266 旁 J85</td><td>PB10 ↔ W_RX</td><td><span class="badge b-red">拔掉</span></td><td>断开 STM32 USART3 与 ESP8266</td></tr>
+    <tr><td>ESP8266 旁 J84</td><td>PB11 ↔ W_TX</td><td><span class="badge b-red">拔掉</span></td><td>断开 STM32 USART3 与 ESP8266</td></tr>
+  </table>
+  <div class="tip"><strong>找 CH340 跳帽：</strong>CH340 芯片在板子 Mini USB 口旁边，右侧有 2 个跳帽将 CH340 的 TXD/RXD 连到 PA9/PA10。拔掉它们，CH340 的 TXD/RXD 就变成独立的排针，可以杜邦线引出。</div>
+</div>
+
+<div class="step">
+  <p><span class="step-num">1</span><strong>方法 B（USB-TTL）：只拔 2 个跳帽</strong></p>
+  <table>
+    <tr><th>跳帽</th><th>原来连接</th><th>操作</th><th>目的</th></tr>
+    <tr><td>ESP8266 旁 J85</td><td>PB10 ↔ W_RX</td><td><span class="badge b-red">拔掉</span></td><td>断开 STM32 USART3_TX，避免和 USB-TTL TXD 抢 W_RX</td></tr>
+    <tr><td>ESP8266 旁 J84</td><td>PB11 ↔ W_TX</td><td><span class="badge b-red">拔掉</span></td><td>断开 STM32 USART3_RX，避免和 USB-TTL RXD 抢 W_TX</td></tr>
+  </table>
+  <div class="tip"><strong>方法 B 不需要动 CH340 跳帽：</strong>因为你用的是外部 USB-TTL，板载 CH340 留着给 STM32 用也不影响——数据走 USB-TTL 的独立 COM 口。</div>
+</div>
+
+<!-- ==================== STEP 2 ==================== -->
+<h2>第 2 步：杜邦线交叉连接</h2>
+
+<div class="step">
+  <p><span class="step-num">2</span><strong>方法 A（板载 CH340）：2 根杜邦线</strong></p>
+  <table>
+    <tr><th>CH340 排针端</th><th>ESP8266 排针端</th><th>注意</th></tr>
+    <tr><td>CH340 <strong>TXD</strong></td><td>ESP8266 <strong>W_RX（URX）</strong></td><td>交叉！TX 对 RX</td></tr>
+    <tr><td>CH340 <strong>RXD</strong></td><td>ESP8266 <strong>W_TX（UTX）</strong></td><td>交叉！RX 对 TX</td></tr>
+  </table>
+  <div class="warn"><strong>千万注意：</strong>TX→RX、RX→TX 交叉连接，不是 TX→TX！接反了 Flash Download Tool 会一直卡在 SYNC 不动。</div>
+</div>
+
+<div class="step">
+  <p><span class="step-num">2</span><strong>方法 B（USB-TTL）：你之前已经接好了，确认即可</strong></p>
+  <table>
+    <tr><th>USB-TTL 端</th><th>颜色</th><th>开发板端</th><th>状态</th></tr>
+    <tr><td>TXD</td><td>棕色</td><td>W_RX</td><td><span class="badge b-green">已接好</span></td></tr>
+    <tr><td>RXD</td><td>黑色</td><td>W_TX</td><td><span class="badge b-green">已接好</span></td></tr>
+    <tr><td>GND</td><td>白色</td><td>板子 GND</td><td><span class="badge b-green">已接好</span></td></tr>
+    <tr><td>3V3</td><td>红色</td><td>不接（悬空）</td><td><span class="badge b-blue">正确</span></td></tr>
+  </table>
+  <div class="ok"><strong>确认：</strong>USB-TTL 跳帽在 3.3V 位置（之前已改好）。ESP8266 由开发板供电，USB-TTL 只负责数据线。</div>
+</div>
+
+<!-- ==================== STEP 3 ==================== -->
+<h2>第 3 步：EN 接 3V3，IO0 接 GND</h2>
+
+<div class="step">
+  <p><span class="step-num">3</span><strong>两种方法都一样，确认跳帽状态</strong></p>
+  <table>
+    <tr><th>跳帽/拨钮</th><th>应接位置</th><th>你的当前状态</th><th>操作</th></tr>
+    <tr><td>EN ↔ 3V3</td><td>3V3</td><td>已接好</td><td><span class="badge b-green">不动</span></td></tr>
+    <tr><td>IO0 ↔ GND</td><td>GND</td><td>已接好</td><td><span class="badge b-green">不动</span></td></tr>
+    <tr><td>J66 3V3↔W_3V3</td><td>插着</td><td>已接好</td><td><span class="badge b-green">不动</span></td></tr>
+  </table>
+  <div class="tip"><strong>原理：</strong>ESP8266 芯片启动时，若 IO0 为低电平，芯片会进入下载模式。EN 接 3V3 保证芯片正常使能。</div>
+</div>
+
+<!-- ==================== STEP 4 ==================== -->
+<h2>第 4 步：74880 波特率验证下载模式（★ 教程关键步骤！）</h2>
+
+<div class="step">
+  <p><span class="step-num">4</span><strong>打开串口调试助手，验证 ESP8266 是否进入下载模式</strong></p>
+  <ol>
+    <li>打开串口调试助手（野火多功能调试助手 / SSCOM / 串口大师 都行）</li>
+    <li><strong>选择 COM 口：</strong>
+      <ul>
+        <li>方法 A：选板载 CH340 的 COM 口（如 COM4）</li>
+        <li>方法 B：选 USB-TTL 的 COM 口（看设备管理器，可能是 COM5 或其他）</li>
+      </ul>
+    </li>
+    <li><strong>波特率设为 74880</strong>（不是 115200！74880 是 ESP8266 ROM 启动信息的固定波特率）</li>
+    <li>数据位 8，停止位 1，无校验</li>
+    <li>点击"打开串口"</li>
+    <li><strong>按一下开发板的 RESET 键</strong>（让 ESP8266 重新启动）</li>
+  </ol>
+  
+  <div class="ok">
+    <p><strong>成功标志：</strong>串口助手收到类似以下信息：</p>
+    <div class="code">ets Jan  8 2013,rst cause:1, boot mode:(3,6)
+
+load 0x40100000, len 1396, room 16
+  </div>
+    <p>看到 <strong>boot mode:(3,x)</strong> 或 <strong>boot mode:(1,x)</strong> = ESP8266 已进入下载模式，可以继续烧录。</p>
+  </div>
+
+  <div class="warn">
+    <p><strong>如果 ESP8266 一直闪灯、反复复位、重复打印信息：</strong></p>
+    <p>说明 RST 脚悬空不稳定。<strong>将 RST 脚接 3V3</strong> 即可解决。</p>
+    <p>霸道 V2 上 RST 由 STM32 的 PG14 控制。如果 STM32 没跑初始化程序，PG14 悬空会导致 RST 不稳定。解决方法：</p>
+    <ul>
+      <li>方案 1：让 STM32 跑任意带 ESP8266_Init() 的程序（如之前的透传桥 main_bridge.c），按 RESET 后 STM32 会自动拉高 RST</li>
+      <li>方案 2：找到 ESP8266 模块上方的 RST 排针，用杜邦线接 3V3</li>
+    </ul>
+  </div>
+
+  <div class="warn">
+    <p><strong>如果什么都没收到（空白）：</strong></p>
+    <ul>
+      <li>检查 TX/RX 是否接反（TX→RX 交叉，不是 TX→TX）</li>
+      <li>检查 GND 是否接好</li>
+      <li>检查 COM 口是否选对</li>
+      <li>检查 IO0 是否真的接了 GND</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ==================== STEP 5 ==================== -->
+<h2>第 5 步：关闭串口助手，打开 Flash Download Tool</h2>
+
+<div class="step">
+  <p><span class="step-num">5</span><strong>关闭串口助手（释放 COM 口）</strong></p>
+  <div class="warn"><strong>必须关闭！</strong>串口助手和 Flash Download Tool 不能同时占用同一个 COM 口，否则烧录失败。</div>
+  
+  <p><span class="step-num">5b</span><strong>打开 Flash Download Tool</strong></p>
+  <ol>
+    <li>运行 <code>flash_download_tool_x.x.x.exe</code></li>
+    <li>弹窗选择：
+      <ul>
+        <li><strong>ChipType：</strong>ESP8266</li>
+        <li><strong>WorkMode：</strong>Develop</li>
+        <li><strong>LoadMode：</strong>UART</li>
+      </ul>
+    </li>
+    <li>点击 OK</li>
+  </ol>
+</div>
+
+<!-- ==================== STEP 6 ==================== -->
+<h2>第 6 步：Flash Download Tool 配置参数</h2>
+
+<div class="step">
+  <p><span class="step-num">6</span><strong>SPI Download 标签页配置</strong></p>
+  <table>
+    <tr><th>参数</th><th>设置值</th><th>说明</th></tr>
+    <tr><td>COM</td><td>选你的 COM 口</td><td>方法A选板载CH340口，方法B选USB-TTL口</td></tr>
+    <tr><td>BAUD</td><td>115200</td><td>教程说越大越快但越不稳定，115200 足够稳</td></tr>
+    <tr><td>SPI SPEED</td><td>40MHz</td><td>标准值</td></tr>
+    <tr><td>SPI MODE</td><td>DIO</td><td>ESP8266 标准模式</td></tr>
+    <tr><td>FLASH SIZE</td><td>8Mbit（1MB）</td><td>霸道V2 板载 1MB Flash</td></tr>
+  </table>
+  
+  <p><span class="step-num">6b</span><strong>固件文件配置</strong></p>
+  <table>
+    <tr><th>项目</th><th>设置</th></tr>
+    <tr><td>固件路径</td><td><code>D:\modulebusLinkMQTT\Doc\ESP8266_AT_MQTT_1M.bin</code></td></tr>
+    <tr><td>烧录地址</td><td><code>0x00000</code></td></tr>
+    <tr><td>DoNotChgBin</td><td><span class="badge b-green">勾选</span></td></tr>
+  </table>
+  <div class="tip"><strong>教程说明：</strong>固件只有一个 bin 文件时，地址设为 0x00000。如果有多个 bin 文件，参考固件目录里的 readme。</div>
+</div>
+
+<!-- ==================== STEP 7 ==================== -->
+<h2>第 7 步：按 RESET 后点 START</h2>
+
+<div class="step">
+  <p><span class="step-num">7</span><strong>重要顺序：先按 RESET，再点 START</strong></p>
+  <ol>
+    <li><strong>按一下开发板的 RESET 键</strong> — 让 ESP8266 重新进入下载模式</li>
+    <li><strong>点击 Flash Download Tool 的 START 按钮</strong></li>
+  </ol>
+  
+  <div class="ok">
+    <p><strong>正常流程：</strong></p>
+    <div class="code">IDLE 等待 → SYNC → DOWNLOAD → FINISH（绿色）</div>
+    <p>进度条从 0% 走到 100%，绿色 FINISH 出现 = 烧录成功。</p>
+  </div>
+</div>
+
+<!-- ==================== STEP 8 ==================== -->
+<h2>第 8 步：烧录完成后验证</h2>
+
+<div class="step">
+  <p><span class="step-num">8</span><strong>恢复 IO0 到 3V3，验证 AT 命令</strong></p>
+  <ol>
+    <li><strong>把 IO0 跳帽/拨钮从 GND 改回 3V3</strong>（不改回 ESP8266 会一直停在下载模式！）</li>
+    <li>按一下开发板 RESET 键</li>
+    <li>打开串口调试助手，COM 口不变</li>
+    <li><strong>波特率改为 115200</strong>（不是 74880 了）</li>
+    <li>发送 <code>AT</code>（后面要加回车换行！）</li>
+  </ol>
+  
+  <div class="ok">
+    <p><strong>成功标志：</strong>收到 <code>OK</code> 回复 = 固件烧录正常，通信正常。</p>
+  </div>
+  
+  <div class="tip">
+    <p><strong>也可以发送 AT+GMR 查看版本信息：</strong></p>
+    <p>发送 <code>AT+GMR</code>，应返回固件版本号、SDK 版本、编译时间等信息。</p>
+  </div>
+</div>
+
+<!-- ==================== STEP 9 ==================== -->
+<h2>第 9 步：恢复跳帽和程序</h2>
+
+<div class="step">
+  <p><span class="step-num">9</span><strong>把所有跳帽恢复到正常工作位置</strong></p>
+  <table>
+    <tr><th>跳帽</th><th>烧录时</th><th>恢复后</th></tr>
+    <tr><td>J85 PB10↔W_RX</td><td>拔掉</td><td><span class="badge b-green">插回</span></td></tr>
+    <tr><td>J84 PB11↔W_TX</td><td>拔掉</td><td><span class="badge b-green">插回</span></td></tr>
+    <tr><td>J66 3V3↔W_3V3</td><td>插着</td><td><span class="badge b-green">不动</span></td></tr>
+    <tr><td>CH340 TXD↔PA9（方法A）</td><td>拔掉</td><td><span class="badge b-green">插回</span></td></tr>
+    <tr><td>CH340 RXD↔PA10（方法A）</td><td>拔掉</td><td><span class="badge b-green">插回</span></td></tr>
+    <tr><td>EN↔3V3</td><td>3V3</td><td><span class="badge b-green">不动</span></td></tr>
+    <tr><td>IO0↔3V3</td><td>GND</td><td><span class="badge b-green">改回3V3</span></td></tr>
+  </table>
+  
+  <p><span class="step-num">9b</span><strong>Keil 恢复源文件</strong></p>
+  <ol>
+    <li>main.c → 勾选 "Include in Target Build"</li>
+    <li>stm32f1xx_it.c → 勾选 "Include in Target Build"</li>
+    <li>main_bridge.c → 取消勾选</li>
+    <li>stm32f1xx_it_bridge.c → 取消勾选</li>
+    <li>F7 编译 → 下载到 STM32</li>
+  </ol>
+  <p>现在 MQTT 应用程序就可以正常运行了。</p>
+</div>
+
+<!-- ==================== TROUBLESHOOTING ==================== -->
+<h2>烧录失败排查（来自官方教程）</h2>
+
+<div class="step">
+  <table>
+    <tr><th>现象</th><th>原因</th><th>解决</th></tr>
+    <tr><td>卡在 SYNC 不动</td><td>ESP8266 没进下载模式</td><td>确认 IO0 接 GND → 按 RESET → 再 START</td></tr>
+    <tr><td>卡在"等待上电过程"</td><td>接线无误但 ESP8266 没复位</td><td>将 RST 引脚接地复位一下</td></tr>
+    <tr><td>COM 口错误/被占用</td><td>串口助手没关</td><td>关闭所有占用 COM 口的软件</td></tr>
+    <tr><td>电源不稳定</td><td>USB 供电不足</td><td>换 USB 口或用独立电源</td></tr>
+    <tr><td>ESP8266 反复复位</td><td>RST 脚悬空</td><td>将 RST 脚接 3V3</td></tr>
+    <tr><td>波特率过高失败</td><td>线太长/质量差</td><td>降低波特率到 57600 或更低</td></tr>
+    <tr><td>固件超过 Flash 大小</td><td>1MB Flash 烧了 2MB 固件</td><td>确认用 1MB 版本固件</td></tr>
+    <tr><td>串口芯片选型不对</td><td>用了 RS232/485</td><td>必须用 TTL 电平（CH340/CP2102）</td></tr>
+  </table>
+</div>
+
+<!-- ==================== SUMMARY ==================== -->
+<h2>操作速查表</h2>
+
+<div class="step">
+  <table>
+    <tr><th>步骤</th><th>方法 A（板载CH340）</th><th>方法 B（USB-TTL）</th></tr>
+    <tr><td>1. 拔跳帽</td><td>4个：CH340×2 + J85 + J84</td><td>2个：J85 + J84</td></tr>
+    <tr><td>2. 杜邦线</td><td>2根：CH340 TXD→W_RX, RXD→W_TX</td><td>已接好，确认即可</td></tr>
+    <tr><td>3. EN/IO0</td><td>EN→3V3, IO0→GND</td><td>同左（已接好）</td></tr>
+    <tr><td>4. 验证(74880)</td><td>选CH340 COM口</td><td>选USB-TTL COM口</td></tr>
+    <tr><td>5. Flash工具COM</td><td>CH340 COM口</td><td>USB-TTL COM口</td></tr>
+    <tr><td>6~8. 烧录+验证</td><td colspan="2" style="text-align:center">完全相同</td></tr>
+    <tr><td>9. 恢复</td><td>插回4个跳帽+IO0→3V3</td><td>插回2个跳帽+IO0→3V3</td></tr>
+  </table>
+</div>
+
+<div class="footer">
+  <p>基于野火官方《ESP8266烧录固件教程》PDF，适配霸道 V2 开发板 + ESP8266-12F（1MB Flash）</p>
+  <p>固件文件：D:\modulebusLinkMQTT\Doc\ESP8266_AT_MQTT_1M.bin | 烧录工具：Flash Download Tool V3.9.11</p>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP8266固件烧录 · 方案B 详细操作步骤</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #f0f2f5;
+    color: #2c3e50;
+    line-height: 1.8;
+    padding: 20px;
+  }
+  .container { max-width: 880px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #357abd, #2c5f8a);
+    color: white;
+    padding: 30px 40px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 20px rgba(53,122,189,0.3);
+  }
+  .header h1 { font-size: 26px; margin-bottom: 8px; }
+  .header p { font-size: 14px; opacity: 0.9; }
+  .header .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    margin-top: 8px;
+  }
+
+  /* Summary box */
+  .summary-box {
+    background: white;
+    border-radius: 12px;
+    padding: 20px 28px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    border-left: 4px solid #357abd;
+  }
+  .summary-box h2 { font-size: 18px; color: #357abd; margin-bottom: 12px; }
+  .summary-box ul { list-style: none; }
+  .summary-box li {
+    padding: 6px 0;
+    padding-left: 24px;
+    position: relative;
+    font-size: 14px;
+  }
+  .summary-box li::before {
+    content: "▸";
+    position: absolute;
+    left: 8px;
+    color: #357abd;
+    font-weight: bold;
+  }
+
+  /* Phase section */
+  .phase {
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .phase-header {
+    padding: 16px 28px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .phase-header.blue { background: linear-gradient(135deg, #4a90d9, #357abd); }
+  .phase-header.orange { background: linear-gradient(135deg, #e67e22, #d35400); }
+  .phase-header.green { background: linear-gradient(135deg, #27ae60, #229954); }
+  .phase-body { padding: 24px 28px; }
+
+  /* Step */
+  .step {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+  }
+  .step:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  .step-number.blue { background: #357abd; }
+  .step-number.orange { background: #e67e22; }
+  .step-number.green { background: #27ae60; }
+  .step-title {
+    font-size: 17px;
+    font-weight: bold;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .step-content { margin-top: 12px; padding-left: 42px; }
+  .step-content p { font-size: 14px; margin-bottom: 8px; }
+  .step-content ol { padding-left: 20px; font-size: 14px; }
+  .step-content ol li { margin-bottom: 6px; }
+
+  /* Jumper table */
+  .jumper-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .jumper-table th {
+    background: #e67e22;
+    color: white;
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 13px;
+  }
+  .jumper-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+  }
+  .jumper-table tr:last-child td { border-bottom: none; }
+  .jumper-table .label-col { font-weight: bold; color: #2c3e50; }
+  .badge-plug {
+    display: inline-block;
+    background: #27ae60;
+    color: white;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  .badge-unplug {
+    display: inline-block;
+    background: #e74c3c;
+    color: white;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  .badge-warn {
+    display: inline-block;
+    background: #e67e22;
+    color: white;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+
+  /* Info box */
+  .info-box {
+    background: #e8f4fd;
+    border-left: 4px solid #357abd;
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .warn-box {
+    background: #fff3cd;
+    border-left: 4px solid #e67e22;
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .danger-box {
+    background: #fde8e8;
+    border-left: 4px solid #e74c3c;
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .success-box {
+    background: #e8f5e9;
+    border-left: 4px solid #27ae60;
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+
+  /* Code block */
+  .code-block {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 14px 18px;
+    border-radius: 6px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    margin: 12px 0;
+    overflow-x: auto;
+  }
+  .code-block .green { color: #4ec9b0; }
+  .code-block .yellow { color: #dcdcaa; }
+  .code-block .blue { color: #569cd6; }
+  .code-block .orange { color: #ce9178; }
+
+  /* FDT config table */
+  .fdt-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  .fdt-table th {
+    background: #27ae60;
+    color: white;
+    padding: 8px 14px;
+    text-align: left;
+  }
+  .fdt-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #eee;
+  }
+  .fdt-table .val { font-family: "Consolas", monospace; color: #c0392b; font-weight: bold; }
+
+  /* Troubleshooting */
+  .trouble-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 13px;
+  }
+  .trouble-table th {
+    background: #e74c3c;
+    color: white;
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .trouble-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 20px;
+    color: #999;
+    font-size: 13px;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>ESP8266 固件烧录 · 方案B 详细操作步骤</h1>
+    <p>使用板载 CH340 + STM32 透传桥程序，无需 USB-TTL 小板</p>
+    <span class="badge">开发板：野火霸道 V2 · ESP8266-12F · 1MB Flash</span>
+    <span class="badge">固件：ESP8266_AT_MQTT_1M.bin</span>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary-box">
+    <h2>方案概述</h2>
+    <ul>
+      <li>原理：STM32 运行透传桥程序，把电脑通过板载 CH340（USART1）发来的数据转发给 ESP8266（USART3）</li>
+      <li>透传桥程序会自动拉高 PG13(EN) 使能 ESP8266，并拉低再拉高 PG14(RST) 复位 ESP8266</li>
+      <li>你只需手动把 GPIO0 拉低（跳帽接 GND），配合自动复位，ESP8266 即进入下载模式</li>
+      <li>全程共 7 步，涉及跳帽操作 2 次（第3步改 IO0 接 GND，第7步改回 3V3）</li>
+    </ul>
+  </div>
+
+  <!-- Phase 1 -->
+  <div class="phase">
+    <div class="phase-header blue">阶段一：准备透传桥程序</div>
+    <div class="phase-body">
+
+      <div class="step">
+        <span class="step-number blue">1</span>
+        <span class="step-title">在 Keil 中切换参与编译的源文件</span>
+        <div class="step-content">
+          <p>项目里有两套 main 函数和中断处理文件，必须排除原文件、包含 bridge 文件，否则编译会报"重复定义"错误。</p>
+          <table class="jumper-table">
+            <tr>
+              <th>操作</th>
+              <th>文件</th>
+              <th>路径</th>
+            </tr>
+            <tr>
+              <td><span class="badge-unplug">排除编译</span></td>
+              <td>main.c</td>
+              <td>D:\modulebusLinkMQTT\User\main.c</td>
+            </tr>
+            <tr>
+              <td><span class="badge-plug">包含编译</span></td>
+              <td>main_bridge.c</td>
+              <td>D:\modulebusLinkMQTT\User\main_bridge.c</td>
+            </tr>
+            <tr>
+              <td><span class="badge-unplug">排除编译</span></td>
+              <td>stm32f1xx_it.c</td>
+              <td>D:\modulebusLinkMQTT\User\stm32f1xx_it.c</td>
+            </tr>
+            <tr>
+              <td><span class="badge-plug">包含编译</span></td>
+              <td>stm32f1xx_it_bridge.c</td>
+              <td>D:\modulebusLinkMQTT\User\stm32f1xx_it_bridge.c</td>
+            </tr>
+          </table>
+          <div class="info-box">
+            <b>操作方法（Keil 中）：</b><br>
+            1. 在左侧工程树中右键点击 <code>main.c</code> → 选择 <b>Options for File 'main.c'</b><br>
+            2. 在弹出窗口中取消勾选 <b>"Include in Target Build"</b> → 点击 OK<br>
+            3. 右键 <code>main_bridge.c</code> → Options → 确认勾选 <b>"Include in Target Build"</b> → OK<br>
+            4. 对 <code>stm32f1xx_it.c</code> 和 <code>stm32f1xx_it_bridge.c</code> 执行相同操作
+          </div>
+          <div class="warn-box">
+            <b>替代方法（更简单）：</b>直接在文件管理器中重命名<br>
+            • main.c → main_backup.c<br>
+            • main_bridge.c → main.c<br>
+            • stm32f1xx_it.c → stm32f1xx_it_backup.c<br>
+            • stm32f1xx_it_bridge.c → stm32f1xx_it.c<br>
+            烧录完后恢复时，把名字换回来即可。
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-number blue">2</span>
+        <span class="step-title">编译并下载透传桥程序到 STM32</span>
+        <div class="step-content">
+          <ol>
+            <li>按 <b>F7</b>（或 Project → Build Target）编译工程</li>
+            <li>确认编译 <b>0 Error, 0 Warning</b></li>
+            <li>用 ST-Link 或 FlyMcu 把程序下载到 STM32</li>
+          </ol>
+          <div class="success-box">
+            <b>验证：下载成功后 LED1 常亮 = 桥接程序就绪</b><br>
+            如果 LED1 不亮，检查是否下载成功、是否选错了文件
+          </div>
+          <p>此时透传桥程序已运行，STM32 正在监听 USART1 和 USART3 的数据，准备双向转发。</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Phase 2 -->
+  <div class="phase">
+    <div class="phase-header orange">阶段二：配置跳线，进入下载模式</div>
+    <div class="phase-body">
+
+      <div class="step">
+        <span class="step-number orange">3</span>
+        <span class="step-title">配置所有跳帽（最关键一步！）</span>
+        <div class="step-content">
+          <p>这是整个流程中唯一需要动跳帽的步骤。根据你板子的当前状态，大部分跳帽已经正确，<b>只需要改 1 个</b>。</p>
+
+          <table class="jumper-table">
+            <tr>
+              <th>跳帽编号 / 位置</th>
+              <th>烧录时应接</th>
+              <th>作用</th>
+              <th>需要操作</th>
+            </tr>
+            <tr>
+              <td class="label-col">J85<br>(PB10 ↔ W_RX)</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>STM32 USART3_TX → ESP8266 RX 数据通道</td>
+              <td>不需要动</td>
+            </tr>
+            <tr>
+              <td class="label-col">J84<br>(PB11 ↔ W_TX)</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>ESP8266 TX → STM32 USART3_RX 数据通道</td>
+              <td>不需要动</td>
+            </tr>
+            <tr>
+              <td class="label-col">J66<br>(3V3 ↔ W_3V3)</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>给 ESP8266 供电</td>
+              <td>不需要动</td>
+            </tr>
+            <tr>
+              <td class="label-col">EN ↔ 3V3<br>(蓝色跳帽)</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>使能 ESP8266 芯片</td>
+              <td>不需要动</td>
+            </tr>
+            <tr style="background: #fff8e1;">
+              <td class="label-col" style="color:#e74c3c;">IO0(GPIO0) ↔ GND<br>(黄色跳帽)</td>
+              <td><span class="badge-warn">改接 GND</span></td>
+              <td><b>拉低 GPIO0 = 进入下载模式</b></td>
+              <td><b>把跳帽从 3V3 拔下来，改插到 GND 侧</b></td>
+            </tr>
+          </table>
+
+          <div class="danger-box">
+            <b>⚠️ 关键操作（唯一需要动的跳帽）：</b><br>
+            找到 ESP8266 模块旁边的 <b>IO0 跳帽</b>（你之前照片里的黄色跳帽）。<br>
+            如果它接在 <b>IO0 ↔ 3V3</b> → <b>拔下来，改插到 IO0 ↔ GND</b><br>
+            如果它已经接在 <b>IO0 ↔ GND</b> → 不用动，已经正确
+          </div>
+
+          <div class="info-box">
+            <b>为什么只改 GPIO0？</b><br>
+            • J85/J84/J66 必须插着 — 这是 STM32 和 ESP8266 之间的数据通道，拔了就没法透传<br>
+            • EN 跳帽插着 — 透传桥程序虽然会用 PG13 控制 EN，但物理跳帽接 3V3 更保险<br>
+            • <b>GPIO0 接 GND 是进入下载模式的必要条件</b> — 上电时 GPIO0 为低 = 下载模式，为高 = 正常启动
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-number orange">4</span>
+        <span class="step-title">按开发板 RESET 键</span>
+        <div class="step-content">
+          <p>按一下开发板上的 <b>RESET 按键</b>（红色小按键）。</p>
+          <div class="info-box">
+            <b>按 RESET 后发生了什么：</b><br>
+            1. STM32 复位，重新从头运行 main_bridge.c<br>
+            2. 透传桥程序执行 <code>macESP8266_CH_ENABLE()</code> → PG13 拉高 → EN 使能<br>
+            3. 透传桥程序执行 <code>macESP8266_RST_LOW_LEVEL()</code> → PG14 拉低 → 等 100ms<br>
+            4. 透传桥程序执行 <code>macESP8266_RST_HIGH_LEVEL()</code> → PG14 拉高 → RST 释放<br>
+            5. ESP8266 重新上电启动，检测到 GPIO0=低 → <b>进入下载模式</b>
+          </div>
+          <div class="success-box">
+            <b>此时 ESP8266 已进入下载模式，正在等待烧录工具的连接信号。</b>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Phase 3 -->
+  <div class="phase">
+    <div class="phase-header green">阶段三：烧录固件与恢复</div>
+    <div class="phase-body">
+
+      <div class="step">
+        <span class="step-number green">5</span>
+        <span class="step-title">打开 Flash Download Tool，配置并烧录</span>
+        <div class="step-content">
+          <p><b>第一步：运行工具，选择芯片类型</b></p>
+          <div class="code-block">
+<span class="green">运行</span> flash_download_tool_x.x.x.exe
+弹出窗口选择：
+  ChipType :  <span class="yellow">ESP8266</span>
+  WorkMode :  <span class="yellow">Develop</span>
+  LoadMode :  <span class="yellow">UART</span>
+  → 点击 OK
+          </div>
+
+          <p><b>第二步：主界面配置参数</b></p>
+          <table class="fdt-table">
+            <tr>
+              <th>参数</th>
+              <th>设置值</th>
+              <th>说明</th>
+            </tr>
+            <tr>
+              <td>COM</td>
+              <td class="val">板载 CH340 的 COM 口</td>
+              <td>在设备管理器中查看，不是 USB-TTL 的口</td>
+            </tr>
+            <tr>
+              <td>BAUD</td>
+              <td class="val">115200</td>
+              <td>如果不稳定降到 57600</td>
+            </tr>
+            <tr>
+              <td>SPI SPEED</td>
+              <td class="val">40MHz</td>
+              <td>标准值</td>
+            </tr>
+            <tr>
+              <td>SPI MODE</td>
+              <td class="val">DIO</td>
+              <td>ESP8266 标准模式</td>
+            </tr>
+            <tr>
+              <td>FLASH SIZE</td>
+              <td class="val">8Mbit (1MB)</td>
+              <td>霸道 V2 板载 ESP8266 是 1MB Flash</td>
+            </tr>
+          </table>
+
+          <p><b>第三步：加载固件文件</b></p>
+          <div class="code-block">
+点击中间文件列表的空白行 → 浏览选择：
+  <span class="orange">D:\modulebusLinkMQTT\Doc\ESP8266_AT_MQTT_1M.bin</span>
+
+地址栏填入：
+  <span class="yellow">0x00000</span>
+
+右下角勾选：
+  <span class="green">☑ DoNotChgBin</span>  （防止工具自动修改 bin 地址）
+
+点击最下方：
+  <span class="blue">[ START ]</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-number green">6</span>
+        <span class="step-title">等待烧录完成</span>
+        <div class="step-content">
+          <p>正常烧录过程：</p>
+          <div class="code-block">
+<span class="blue">SYNC</span>      → 工具与 ESP8266 握手成功
+<span class="yellow">DOWNLOAD</span>  → 正在写入 Flash，进度条 0% → 100%
+<span class="green">FINISH</span>    → 绿色 = 烧录成功！
+          </div>
+          <div class="danger-box">
+            <b>如果一直卡在 SYNC 不动：</b><br>
+            1. 确认 IO0 跳帽接的是 <b>GND</b>（不是 3V3）<br>
+            2. 确认 <b>按了 RESET 键</b>（在第4步）<br>
+            3. 确认 COM 口选的是 <b>板载 CH340</b> 的口<br>
+            4. 确认 J85/J84/J66 三个跳帽 <b>都插着</b><br>
+            5. 以上都对了 → 再按一次 RESET 键，重新点 START
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-number green">7</span>
+        <span class="step-title">恢复：改回跳帽 + 换回源文件</span>
+        <div class="step-content">
+          <p>烧录成功后，需要恢复到正常工作状态。</p>
+
+          <p><b>① 改回 IO0 跳帽（必须！）</b></p>
+          <table class="jumper-table">
+            <tr>
+              <th>跳帽</th>
+              <th>烧录时</th>
+              <th>恢复后</th>
+              <th>操作</th>
+            </tr>
+            <tr style="background:#e8f5e9;">
+              <td class="label-col">IO0(GPIO0)</td>
+              <td><span class="badge-warn">IO0 ↔ GND</span></td>
+              <td><span class="badge-plug">IO0 ↔ 3V3</span></td>
+              <td><b>拔下黄色跳帽，改插到 3V3 侧</b></td>
+            </tr>
+            <tr>
+              <td class="label-col">J85/J84/J66</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>不动</td>
+            </tr>
+            <tr>
+              <td class="label-col">EN ↔ 3V3</td>
+              <td><span class="badge-plug">插着</span></td>
+              <td><span class="badge-plug">插着</span></td>
+              <td>不动</td>
+            </tr>
+          </table>
+
+          <div class="danger-box">
+            <b>⚠️ 如果不改回 IO0 跳帽，ESP8266 每次启动都会进入下载模式，MQTT 程序无法运行！</b>
+          </div>
+
+          <p><b>② 在 Keil 中恢复源文件</b></p>
+          <table class="jumper-table">
+            <tr>
+              <th>操作</th>
+              <th>文件</th>
+            </tr>
+            <tr>
+              <td><span class="badge-plug">包含编译</span></td>
+              <td>main.c（恢复）</td>
+            </tr>
+            <tr>
+              <td><span class="badge-unplug">排除编译</span></td>
+              <td>main_bridge.c</td>
+            </tr>
+            <tr>
+              <td><span class="badge-plug">包含编译</span></td>
+              <td>stm32f1xx_it.c（恢复）</td>
+            </tr>
+            <tr>
+              <td><span class="badge-unplug">排除编译</span></td>
+              <td>stm32f1xx_it_bridge.c</td>
+            </tr>
+          </table>
+          <p>如果之前用的是重命名方法，把名字换回来即可。</p>
+
+          <p><b>③ 编译并下载 MQTT 应用程序到 STM32</b></p>
+          <ol>
+            <li>F7 编译</li>
+            <li>ST-Link / FlyMcu 下载到 STM32</li>
+            <li>按 RESET 键</li>
+          </ol>
+
+          <div class="success-box">
+            <b>✅ 全部完成！ESP8266 已烧录 MQTT 固件，STM32 正在运行 MQTT 应用程序。</b>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Troubleshooting -->
+  <div class="phase">
+    <div class="phase-header orange">故障排查速查表</div>
+    <div class="phase-body">
+      <table class="trouble-table">
+        <tr>
+          <th>现象</th>
+          <th>可能原因</th>
+          <th>解决方法</th>
+        </tr>
+        <tr>
+          <td>Flash Download Tool 一直卡在 SYNC</td>
+          <td>GPIO0 没拉低 / 没按 RESET / COM 口选错</td>
+          <td>① 确认 IO0 跳帽接 GND<br>② 按 RESET 键<br>③ 确认选板载 CH340 的 COM 口</td>
+        </tr>
+        <tr>
+          <td>Keil 编译报 "multiple definition of main"</td>
+          <td>main.c 和 main_bridge.c 同时参与编译</td>
+          <td>排除 main.c，只包含 main_bridge.c</td>
+        </tr>
+        <tr>
+          <td>Keil 编译报 "multiple definition of USART1_IRQHandler"</td>
+          <td>it.c 和 it_bridge.c 同时参与编译</td>
+          <td>排除 stm32f1xx_it.c，只包含 it_bridge.c</td>
+        </tr>
+        <tr>
+          <td>LED1 不亮</td>
+          <td>透传桥程序没下载成功</td>
+          <td>检查 ST-Link 连接，确认下载成功</td>
+        </tr>
+        <tr>
+          <td>烧录后 ESP8266 不响应 AT 命令</td>
+          <td>IO0 跳帽没改回 3V3</td>
+          <td>把 IO0 跳帽从 GND 改回 3V3，按 RESET</td>
+        </tr>
+        <tr>
+          <td>烧录到一半失败断开</td>
+          <td>供电不足 / 接触不良</td>
+          <td>确保开发板 USB 供电稳定，重试</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    ESP8266 固件烧录方案B 详细操作步骤 · 野火霸道 V2 开发板<br>
+    生成时间：2026-08-10
+  </div>
+
+</div>
+</body>
+</html>

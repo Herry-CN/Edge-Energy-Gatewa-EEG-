@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP8266 固件烧录指南（修正版）</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1a202c;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --success: #16a34a;
+    --success-light: #dcfce7;
+    --warning: #d97706;
+    --warning-light: #fef3c7;
+    --danger: #dc2626;
+    --danger-light: #fee2e2;
+    --code-bg: #f1f5f9;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+    padding: 0;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a5f, #2563eb);
+    color: white;
+    padding: 36px 32px;
+    border-radius: 16px;
+    margin-bottom: 28px;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.2);
+  }
+  .header h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .header .subtitle { font-size: 14px; opacity: 0.85; }
+  .header .meta { display: flex; gap: 20px; margin-top: 16px; font-size: 13px; opacity: 0.9; }
+  .header .meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* Error correction banner */
+  .err-banner {
+    background: var(--danger-light);
+    border: 1px solid #fca5a5;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
+  .err-banner h2 { color: var(--danger); font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .err-banner h2::before { content: "!"; display: inline-flex; width: 22px; height: 22px; background: var(--danger); color: white; border-radius: 50%; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+  .err-list { list-style: none; }
+  .err-list li { padding: 10px 0; border-bottom: 1px solid #fecaca; font-size: 14px; }
+  .err-list li:last-child { border-bottom: none; }
+  .err-list .err-num { display: inline-block; width: 24px; height: 24px; background: var(--danger); color: white; border-radius: 6px; text-align: center; line-height: 24px; font-size: 12px; font-weight: 700; margin-right: 8px; }
+  .err-list .err-wrong { color: var(--danger); text-decoration: line-through; }
+  .err-list .err-right { color: var(--success); font-weight: 600; }
+
+  /* Section */
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  .section h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section h2 .icon { font-size: 20px; }
+  .section h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; color: var(--text); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 12px; border: 1px solid var(--border); }
+  tr:hover td { background: #f8fafc; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .tag-best { background: var(--success-light); color: var(--success); }
+  .tag-ok { background: var(--primary-light); color: var(--primary); }
+  .tag-backup { background: var(--warning-light); color: var(--warning); }
+
+  /* Steps */
+  .step {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 15px;
+    z-index: 1;
+  }
+  .step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 17px;
+    top: 36px;
+    bottom: -12px;
+    width: 2px;
+    background: var(--border);
+  }
+  .step-content { flex: 1; }
+  .step-content h3 { margin: 4px 0 8px; font-size: 16px; }
+  .step-content p { font-size: 14px; color: var(--text); margin-bottom: 8px; }
+
+  /* Code block */
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 10px 0;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .code-block .comment { color: var(--text-muted); }
+  .code-block .highlight { color: var(--danger); font-weight: 600; }
+  .code-block .ok { color: var(--success); font-weight: 600; }
+
+  /* Alert boxes */
+  .alert {
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 14px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .alert-warning { background: var(--warning-light); border: 1px solid #fcd34d; color: #92400e; }
+  .alert-danger { background: var(--danger-light); border: 1px solid #fca5a5; color: #991b1b; }
+  .alert-success { background: var(--success-light); border: 1px solid #86efac; color: #166534; }
+  .alert-info { background: var(--primary-light); border: 1px solid #93c5fd; color: #1e40af; }
+  .alert-icon { flex-shrink: 0; font-weight: 700; font-size: 16px; }
+
+  /* Correction box */
+  .correction {
+    background: #fffbeb;
+    border: 1px dashed #f59e0b;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .correction .corr-label { color: var(--danger); font-weight: 700; margin-right: 6px; }
+  .correction .corr-old { color: var(--danger); text-decoration: line-through; }
+  .correction .corr-arrow { color: var(--text-muted); margin: 0 6px; }
+  .correction .corr-new { color: var(--success); font-weight: 600; }
+
+  /* Pin diagram */
+  .pin-diagram {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .pin-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-family: monospace; font-size: 13px; }
+  .pin-label { min-width: 120px; text-align: right; font-weight: 600; }
+  .pin-wire { flex: 1; height: 2px; position: relative; }
+  .pin-wire.connected { background: var(--success); }
+  .pin-wire.disconnected { background: repeating-linear-gradient(90deg, #cbd5e1 0, #cbd5e1 8px, transparent 8px, transparent 16px); }
+  .pin-wire.gnd { background: #64748b; }
+  .pin-wire.vcc { background: var(--danger); }
+  .pin-target { min-width: 140px; font-weight: 600; }
+  .pin-action { font-size: 12px; color: var(--text-muted); min-width: 100px; }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+  .badge-danger { background: var(--danger-light); color: var(--danger); }
+  .badge-success { background: var(--success-light); color: var(--success); }
+
+  /* FAQ */
+  .faq-item { border-bottom: 1px solid var(--border); padding: 16px 0; }
+  .faq-item:last-child { border-bottom: none; }
+  .faq-q { font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .faq-q::before { content: "Q"; background: var(--primary); color: white; width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+  .faq-a { font-size: 14px; color: var(--text-muted); padding-left: 30px; }
+  .faq-a::before { content: "A: "; color: var(--success); font-weight: 700; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>ESP8266 固件烧录操作指南</h1>
+    <div class="subtitle">野火霸道 V2 开发板 / 板载 ESP8266-12F / 1MB Flash / MQTT-AT 固件</div>
+    <div class="meta">
+      <span>更新：2026-08-10</span>
+      <span>方案：USB-TTL 直连（方案A）</span>
+      <span>固件：ESP8266_AT_MQTT_1M.bin</span>
+    </div>
+  </div>
+
+  <!-- Error Corrections -->
+  <div class="err-banner">
+    <h2>内容勘误：共修正 6 处错误</h2>
+    <ul class="err-list">
+      <li>
+        <span class="err-num">1</span>
+        固件大小：<span class="err-wrong">991KB</span> <span class="err-right">→ 1024KB（精确 1,048,576 字节 = 1MB 整）</span>
+      </li>
+      <li>
+        <span class="err-num">2</span>
+        EN(CH_PD) 引脚：<span class="err-wrong">"EN 跳帽接在 3V3，正常位置不用动"</span> <span class="err-right">→ EN 接在 PG13 上由 STM32 控制，不是物理跳帽。烧录时需用杜邦线将 EN 引脚物理接 3V3</span>
+      </li>
+      <li>
+        <span class="err-num">3</span>
+        RST 复位：<span class="err-wrong">"按一下板子复位键（RST），ESP8266 就进入下载模式"</span> <span class="err-right">→ 板子 RST 按钮只复位 STM32。ESP8266 的 RST 在 PG14 上，需手动将 RST 引脚碰一下 GND 再接回 3V3</span>
+      </li>
+      <li>
+        <span class="err-num">4</span>
+        验证输出：<span class="err-wrong">"串口应返回 ready / WIFI CONNECTED / WIFI GOT IP"</span> <span class="err-right">→ 全新刷写后 WiFi 配置被擦除，只会出现 ready，不会自动连接 WiFi</span>
+      </li>
+      <li>
+        <span class="err-num">5</span>
+        验证串口：<span class="err-wrong">"选板载 CH340 的 COM 口看 ESP8266 响应"</span> <span class="err-right">→ USART3 跳帽恢复后 ESP8266 在 USART3 上，CH340 在 USART1 上，两者不是同一条串口，需用 USB-TTL 直连或靠 STM32 固件转发</span>
+      </li>
+      <li>
+        <span class="err-num">6</span>
+        MQTT 验证：<span class="err-wrong">"AT+MQTTUSERCFG? 返回参数说明就绪"</span> <span class="err-right">→ 全新刷写后未配置过 MQTT，查询可能返回 ERROR。应发送 AT+GMR 查看版本信息确认固件类型</span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Hardware Facts -->
+  <div class="section">
+    <h2><span class="icon">📋</span> 硬件事实核实（来源：规格书 + 源码 + 论坛）</h2>
+    <table>
+      <tr><th>项目</th><th>实际值</th><th>来源</th></tr>
+      <tr><td>ESP8266 型号</td><td>板载 ESP8266-12F（焊接在 PCB 上）</td><td>规格书 P21</td></tr>
+      <tr><td>Flash 容量</td><td>1MB（8Mbit）</td><td>规格书 P21</td></tr>
+      <tr><td>固件文件大小</td><td><strong>1,048,576 字节 = 1024KB = 1.00MB（精确）</strong></td><td>文件系统实测</td></tr>
+      <tr><td>USART3 (STM32↔ESP8266)</td><td>TX=PB10 → W_RX, RX=PB11 ← W_TX</td><td>规格书 P21 + bsp_esp8266.h</td></tr>
+      <tr><td>W_3V3 电源跳帽</td><td>3V3 ↔ W_3V3（给 ESP8266 供电）</td><td>规格书 P21</td></tr>
+      <tr><td>CH_PD (EN) 引脚</td><td><strong>PG13（STM32 GPIO 控制，非物理跳帽）</strong></td><td>bsp_esp8266.h L72</td></tr>
+      <tr><td>RST 引脚</td><td><strong>PG14（STM32 GPIO 控制，非物理跳帽）</strong></td><td>bsp_esp8266.h L76</td></tr>
+      <tr><td>IO (GPIO0) 跳帽</td><td>正常接 3V3，烧录时改接 GND</td><td>readme.txt + 论坛</td></tr>
+      <tr><td>4 个编程引脚</td><td>ESP8266 正上方，用于更新固件</td><td>规格书 P21</td></tr>
+      <tr><td>板载 CH340</td><td>连 USART1 (PA9/PA10)，非 USART3</td><td>规格书 P21 + readme</td></tr>
+    </table>
+
+    <div class="alert alert-danger">
+      <span class="alert-icon">!</span>
+      <div>
+        <strong>关键纠正：</strong>CH_PD(EN) 和 RST 不是板子上的物理跳帽，而是接在 STM32 的 PG13/PG14 上，由 STM32 固件控制。
+        烧录 ESP8266 时 STM32 可能没有运行 ESP8266_Init()，这两个引脚状态不确定。
+        因此必须用杜邦线将 EN 和 RST 引脚物理接到正确的电平上，不能指望"正常位置不用动"。
+      </div>
+    </div>
+  </div>
+
+  <!-- Forum Analysis -->
+  <div class="section">
+    <h2><span class="icon">🔗</span> 论坛链接分析</h2>
+    <p>链接 <a href="https://www.firebbs.cn/forum.php?mod=viewthread&tid=15750" target="_blank">firebbs.cn tid=15750</a> 是<strong>火哥本人发布的官方烧录教程</strong>，硬件规格书第 21 页直接引用了此帖。</p>
+
+    <h3>帖子核心方法（方案C）</h3>
+    <div class="code-block"><span class="comment">1. 拔跳帽：CH340↔USART1 (PA9/PA10) 和 ESP8266↔USART3 (PB10/PB11)</span>
+<span class="comment">2. 交叉杜邦线：CH340_RXD → ESP8266_UTX, CH340_TXD → ESP8266_URX</span>
+<span class="comment">3. EN 接 3V3, IO0 接 GND（进下载模式）</span>
+<span class="comment">4. 用板载 CH340 的 COM 口烧录</span></div>
+
+    <h3>帖子用户反馈的高频问题</h3>
+    <ul style="margin-left:20px; font-size:14px; line-height:2;">
+      <li>"一直等待上电同步" → <strong>TX/RX 接反</strong>（交叉搞错了）</li>
+      <li>"烧写失败" → <strong>杜邦线接触不良</strong>，多试几次</li>
+      <li>"烧完不断重启" → <strong>固件尺寸不对</strong>或 IO0 没接回 3V3</li>
+      <li>SYNC 卡住 → 帖子建议<strong>把 RST 脚接 3V3 再接 GND 做一次手动复位</strong></li>
+    </ul>
+
+    <div class="alert alert-success">
+      <span class="alert-icon">✓</span>
+      <div>论坛方法<strong>完全有效</strong>，就是我们的"方案C"。你现在有 USB-TTL，可以用更简单的"方案A"。</div>
+    </div>
+  </div>
+
+  <!-- Scheme Comparison -->
+  <div class="section">
+    <h2><span class="icon">⚖️</span> 三种方案对比</h2>
+    <table>
+      <tr>
+        <th>对比项</th>
+        <th>方案A：USB-TTL 直连 <span class="badge badge-success">推荐</span></th>
+        <th>方案B：STM32 透传桥</th>
+        <th>方案C：野火官方跳帽法</th>
+      </tr>
+      <tr><td>额外硬件</td><td>USB-TTL 小板</td><td>无</td><td>2 根杜邦线</td></tr>
+      <tr><td>USB 线</td><td>2 根</td><td>1 根</td><td>1 根</td></tr>
+      <tr><td>需改代码</td><td>不需要</td><td>需要（替换 main.c）</td><td>不需要</td></tr>
+      <tr><td>拔跳帽</td><td>2 个（USART3）</td><td>0 个</td><td>4 个（USART1+USART3）</td></tr>
+      <tr><td>EN/RST 处理</td><td>杜邦线物理接 3V3/GND</td><td>STM32 代码控制</td><td>杜邦线物理接 3V3/GND</td></tr>
+      <tr><td>串口独立性</td><td>独立 COM 口，零干扰</td><td>经 STM32 转发</td><td>板载 CH340 直连</td></tr>
+      <tr><td>推荐度</td><td><span class="tag tag-best">★★★★★</span></td><td><span class="tag tag-ok">★★★</span></td><td><span class="tag tag-backup">★★★★</span></td></tr>
+    </table>
+  </div>
+
+  <!-- Step by Step Guide -->
+  <div class="section">
+    <h2><span class="icon">🚀</span> 方案A 详细操作（7 步）</h2>
+
+    <div class="alert alert-info">
+      <span class="alert-icon">i</span>
+      <div>
+        <strong>准备：</strong>Flash Download Tool（乐鑫官网下载） + 固件 <code>Doc/ESP8266_AT_MQTT_1M.bin</code>（<strong>1024KB = 1MB 整</strong>） + USB-TTL 小板 + 杜邦线 5 根
+      </div>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>断电，拔 USART3 跳帽</h3>
+        <p>板子断电。找到 ESP8266 旁边的跳帽区，拔掉 2 个跳帽：</p>
+        <div class="code-block"><span class="comment">正常工作状态：</span>
+  PB10  ─[跳帽]─ W_RX    <span class="highlight">← 拔掉</span>
+  PB11  ─[跳帽]─ W_TX    <span class="highlight">← 拔掉</span>
+  3V3   ─[跳帽]─ W_3V3   <span class="ok">← 保留！ESP8266 供电</span></div>
+        <div class="alert alert-warning">
+          <span class="alert-icon">!</span>
+          <div>W_3V3 跳帽<strong>绝对不能拔</strong>！ESP8266 靠这个跳帽从板子获取 3.3V 电源。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>接 USB-TTL 数据线（3 根杜邦线）</h3>
+        <p>将 USB-TTL 的 TX/RX/GND 接到拔掉跳帽后暴露的 ESP8266 侧引脚：</p>
+        <div class="code-block">USB-TTL 小板              板子（ESP8266 侧跳帽座）
+  TX   ──杜邦线──>   W_RX   <span class="comment">(原 PB10 跳帽座，找标 W_RX 的那排)</span>
+  RX   ──杜邦线──<   W_TX   <span class="comment">(原 PB11 跳帽座，找标 W_TX 的那排)</span>
+  GND  ──杜邦线──>   任意 GND 引脚</div>
+        <div class="alert alert-danger">
+          <span class="alert-icon">!!</span>
+          <div><strong>关键：TX→RX，RX→TX，交叉连接！</strong>接反了 Flash Download Tool 会一直 SYNC 不动（论坛帖子多人踩坑）。</div>
+        </div>
+        <div class="alert alert-info">
+          <span class="alert-icon">i</span>
+          <div>USB-TTL 的 VCC <strong>不需要接</strong>——ESP8266 由板子 W_3V3 跳帽供电。只接 TX、RX、GND 三根线。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>进下载模式：IO0 拉低 + EN 拉高</h3>
+        <p>找到 ESP8266 旁边的 IO 跳帽（正常接 3V3），以及 EN(CH_PD) 引脚：</p>
+        <div class="code-block"><span class="comment">IO 跳帽（有物理跳帽）：</span>
+  正常状态：  IO ─[跳帽]─ 3V3    <span class="highlight">← 拔掉跳帽</span>
+  下载模式：  IO ─[杜邦线]─ GND  <span class="ok">← 改接 GND</span>
+
+<span class="comment">EN / CH_PD 引脚（接在 PG13 上，无物理跳帽）：</span>
+  <span class="highlight">← 用杜邦线将 EN 引脚接到 3V3</span>
+  <span class="comment">(从 ESP8264 上方的 4 个编程引脚中找到 EN，接 3V3)</span></div>
+
+        <div class="correction">
+          <span class="corr-label">[勘误]</span>
+          原文写"EN 跳帽接在 3V3，正常位置不用动"
+          <span class="corr-old">EN 跳帽</span>
+          <span class="corr-arrow">→</span>
+          <span class="corr-new">EN 接 PG13 由 STM32 控制，烧录时必须用杜邦线物理接 3V3</span>
+        </div>
+
+        <div class="alert alert-danger">
+          <span class="alert-icon">!!</span>
+          <div>
+            <strong>为什么 EN 必须物理接 3V3？</strong>因为 CH_PD(EN) 接在 STM32 的 PG13 上。
+            烧录时 STM32 可能没运行 ESP8266_Init()，PG13 状态不确定（可能为低），
+            ESP8266 会被禁用。必须用杜邦线强制 EN=3V3。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>手动复位 ESP8266（关键！）</h3>
+        <p>IO0 已接 GND、EN 已接 3V3 后，需要让 ESP8266 做一次复位才能进入下载模式：</p>
+        <div class="code-block"><span class="comment">ESP8266 的 RST 在 PG14 上，板子 RST 按钮只复位 STM32，不一定能复位 ESP8266。</span>
+<span class="comment">正确做法：找到 ESP8266 的 RST 引脚（4 个编程引脚之一）</span>
+
+  ① 先将 RST 引脚碰一下 GND（拉低复位）
+  ② 然后接回 3V3（释放复位）
+  ③ 此时 ESP8266 以 IO0=LOW 重启 → 进入下载模式</div>
+
+        <div class="correction">
+          <span class="corr-label">[勘误]</span>
+          原文写"按一下板子复位键（RST），ESP8266 就进入下载模式"
+          <span class="corr-old">按板子 RST 键</span>
+          <span class="corr-arrow">→</span>
+          <span class="corr-new">手动碰 RST 引脚 GND→3V3（PG14 由 STM32 控制，板子 RST 按钮不直接复位 ESP8266）</span>
+        </div>
+
+        <div class="alert alert-warning">
+          <span class="alert-icon">!</span>
+          <div>如果手边找不到 RST 引脚，也可以直接<strong>拔一下 ESP8266 的 W_3V3 跳帽再插回去</strong>（断电再上电），效果等同于复位。但要确保 IO0 已经接 GND。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>连接 USB，确认 COM 口</h3>
+        <p>板子 USB 线接电脑（供电） + USB-TTL 小板 USB 线接电脑（数据）。</p>
+        <p>打开 Windows 设备管理器 → 端口（COM 和 LPT），记住 USB-TTL 的 COM 口号。</p>
+        <div class="alert alert-warning">
+          <span class="alert-icon">!</span>
+          <div>板载 CH340 也会显示一个 COM 口，<strong>不要选这个</strong>。选 USB-TTL 小板对应的 COM 口。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6 -->
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h3>Flash Download Tool 烧录</h3>
+        <p>运行 <code>flash_download_tool_x.x.x.exe</code>，弹框选 ESP8266 / Develop / UART → OK</p>
+        <table>
+          <tr><th>参数</th><th>设置值</th></tr>
+          <tr><td>COM</td><td><strong>USB-TTL 的 COM 口</strong>（不是板载 CH340）</td></tr>
+          <tr><td>BAUD</td><td>115200</td></tr>
+          <tr><td>SPI SPEED</td><td>40MHz</td></tr>
+          <tr><td>SPI MODE</td><td>DIO</td></tr>
+          <tr><td>FLASH SIZE</td><td>8Mbit（1MB）</td></tr>
+          <tr><td>固件路径</td><td>D:\modulebusLinkMQTT\Doc\ESP8266_AT_MQTT_1M.bin</td></tr>
+          <tr><td>烧录地址</td><td>0x00000</td></tr>
+          <tr><td>DoNotChgBin</td><td>勾选</td></tr>
+        </table>
+        <p>点 <strong>START</strong> → 进度条 SYNC → DOWNLOAD → <strong>FINISH（绿色）</strong> = 成功</p>
+      </div>
+    </div>
+
+    <!-- Step 7 -->
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content">
+        <h3>恢复运行状态</h3>
+        <div class="code-block"><span class="comment">按顺序恢复：</span>
+  ① 拔掉 USB-TTL 的 3 根数据线 + EN/RST 杜邦线
+  ② <span class="highlight">IO 跳帽接回 3V3</span>（← 不接回 ESP8266 不启动！）
+  ③ PB10↔W_RX、PB11↔W_TX 两个跳帽插回原位
+  ④ 按复位键
+  ⑤ ESP8266 上电正常启动，蓝灯闪烁 = 正常工作</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Troubleshooting -->
+  <div class="section">
+    <h2><span class="icon">🔧</span> 常见问题排查</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">一直停在 SYNC，不动</div>
+      <div class="faq-a">
+        最常见原因。依次检查：
+        <br>① IO 引脚是否接 GND（不是 3V3）
+        <br>② EN 引脚是否物理接 3V3（<strong>不能靠 STM32</strong>）
+        <br>③ RST 是否做过 GND→3V3 复位动作（<strong>不能只按板子 RST</strong>）
+        <br>④ TX/RX 是否交叉（TX→RX，RX→TX，<strong>不是 TX→TX</strong>）
+        <br>⑤ 杜邦线是否接触良好（论坛多人反馈是接触问题）
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">下载到一半失败</div>
+      <div class="faq-a">把 BAUD 从 115200 降到 57600 或 38400 重试。杜邦线太长也会导致信号不稳。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">FINISH 了但 ESP8266 不断重启</div>
+      <div class="faq-a">
+        ① IO 跳帽是否已接回 3V3（没接回会一直进下载模式循环）
+        <br>② 固件尺寸是否正确（必须用 1MB 版本，文件大小 1,048,576 字节）
+        <br>③ SPI MODE 是否设为 DIO（不是 QIO）
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">设备管理器看不到 USB-TTL 的 COM 口</div>
+      <div class="faq-a">缺少驱动。CH340 搜"CH340 驱动"，CP2102 搜"CP2102 驱动"，PL2303 搜"PL2303 驱动"。</div>
+    </div>
+  </div>
+
+  <!-- Verification -->
+  <div class="section">
+    <h2><span class="icon">✅</span> 固件验证（修正版）</h2>
+
+    <div class="alert alert-warning">
+      <span class="alert-icon">!</span>
+      <div>
+        <strong>重要纠正：</strong>刷写完成后，<strong>不要</strong>用板载 CH340 的 COM 口直接看 ESP8266 响应——
+        因为 USART3 跳帽恢复后 ESP8266 在 USART3(PB10/PB11) 上，CH340 在 USART1(PA9/PA10) 上，两者不是同一条串口。
+      </div>
+    </div>
+
+    <h3>正确的验证方法：用 USB-TTL 直连 ESP8266</h3>
+    <div class="code-block"><span class="comment">保持 USART3 跳帽拔掉，USB-TTL 仍接 W_RX/W_TX</span>
+
+1. 打开串口助手，选 <strong>USB-TTL 的 COM 口</strong>
+2. 波特率 115200，N-8-1
+3. 先给 ESP8266 做一次复位（RST 碰 GND 再接 3V3）
+4. 串口应返回：
+   <span class="ok">  ready</span>
+   <span class="comment">  （注意：全新刷写后 WiFi 配置已被擦除，</span>
+   <span class="comment">   不会出现 WIFI CONNECTED / WIFI GOT IP）</span>
+
+5. 发送 AT\r\n → 应返回 <span class="ok">OK</span>
+6. 发送 AT+GMR\r\n → 返回版本信息
+   <span class="comment">  （查看版本字符串中是否包含 MQTT 相关信息）</span>
+7. 发送 AT+MQTTUSERCFG=0,1,"","test","","",0,0,""\r\n
+   <span class="comment">  → 如果返回 OK 而非 ERROR，说明 MQTT 指令集已加载</span></div>
+
+    <div class="correction">
+      <span class="corr-label">[勘误]</span>
+      原文验证部分：
+      <br><span class="corr-old">"串口应返回 ready / WIFI CONNECTED / WIFI GOT IP"</span>
+      <span class="corr-arrow">→</span>
+      <span class="corr-new">只返回 ready（全新刷写 WiFi 配置被擦除）</span>
+      <br><span class="corr-old">"选板载 CH340 的 COM 口"</span>
+      <span class="corr-arrow">→</span>
+      <span class="corr-new">选 USB-TTL 的 COM 口（CH340 在 USART1，ESP8266 在 USART3）</span>
+      <br><span class="corr-old">"AT+MQTTUSERCFG? 查询"</span>
+      <span class="corr-arrow">→</span>
+      <span class="corr-new">AT+GMR 看版本 + AT+MQTTUSERCFG=... 实测是否被识别</span>
+    </div>
+  </div>
+
+  <!-- Alternative: Method C -->
+  <div class="section">
+    <h2><span class="icon">📋</span> 备用：方案C（论坛方法）速查</h2>
+    <p>万一 USB-TTL 有问题，论坛方法不需要额外硬件：</p>
+    <div class="code-block"><span class="comment">野火官方方法（firebbs.cn tid=15750）</span>
+
+1. 拔 4 个跳帽：
+   - USART1: PA9↔CH_RXD, PA10↔CH_TXD
+   - USART3: PB10↔W_RX,  PB11↔W_TX
+
+2. 2 根杜邦线交叉连接：
+   CH340_RXD ──> ESP8266 W_TX (UTX)
+   CH340_TXD ──> ESP8266 W_RX (URX)
+
+3. EN 接 3V3, IO0 接 GND（进下载模式）
+4. RST 碰 GND 再接 3V3（手动复位）
+
+5. Flash Download Tool 选 <strong>板载 CH340 的 COM 口</strong>
+   其余参数同方案A（115200/DIO/8Mbit/bin@0x00000）
+
+6. START → FINISH
+7. 恢复：拔杜邦线，4 个跳帽插回，IO 接回 3V3</div>
+  </div>
+
+  <!-- Pin Reference -->
+  <div class="section">
+    <h2><span class="icon">📌</span> 引脚速查表</h2>
+    <table>
+      <tr><th>ESP8266 引脚</th><th>板子标识</th><th>STM32 连接</th><th>控制方式</th><th>烧录时操作</th></tr>
+      <tr><td>URXD</td><td>W_RX</td><td>PB10 (USART3_TX)</td><td>跳帽</td><td>拔跳帽，接 USB-TTL TX</td></tr>
+      <tr><td>UTXD</td><td>W_TX</td><td>PB11 (USART3_RX)</td><td>跳帽</td><td>拔跳帽，接 USB-TTL RX</td></tr>
+      <tr><td>3V3 电源</td><td>W_3V3</td><td>3V3</td><td>跳帽</td><td><strong>保留不动</strong></td></tr>
+      <tr><td>GPIO0 (IO)</td><td>IO</td><td>跳帽接 3V3</td><td>跳帽</td><td>改接 GND</td></tr>
+      <tr><td>CH_PD (EN)</td><td>EN</td><td><strong>PG13</strong></td><td><strong>STM32 GPIO</strong></td><td><strong>杜邦线接 3V3</strong></td></tr>
+      <tr><td>RST</td><td>RST</td><td><strong>PG14</strong></td><td><strong>STM32 GPIO</strong></td><td><strong>碰 GND 再接 3V3</strong></td></tr>
+    </table>
+
+    <div class="alert alert-info">
+      <span class="alert-icon">i</span>
+      <div>
+        <strong>ESP8266 正上方的 4 个编程引脚</strong>（规格书 P21 提到）可直接用于烧录，
+        通常为 URX、UTX、EN、IO0。
+        方案A 用跳帽座的 W_RX/W_TX 引脚也是等价的（同一根信号线，不同物理接入点）。
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    基于野火霸道 V2 硬件规格书 + 项目源码 + 野火论坛官方教程 交叉核实生成<br>
+    固件：ESP8266_AT_MQTT_1M.bin（1,048,576 bytes = 1MB）| 2026-08-10
+  </div>
+
+</div>
+</body>
+</html>
