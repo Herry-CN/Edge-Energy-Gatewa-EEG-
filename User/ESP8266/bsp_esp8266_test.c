@@ -142,9 +142,7 @@ static void diagnostic_mode(void)
     macESP8266_RST_LOW_LEVEL(); HAL_Delay(100);
     macESP8266_RST_HIGH_LEVEL(); HAL_Delay(700);
     /* Flush any leftover boot bytes from USART3 ring */
-    strEsp8266_Fram_Record.InfBit.FramFinishFlag = 0;
-    strEsp8266_Fram_Record.InfBit.FramLength = 0;
-    memset(strEsp8266_Fram_Record.Data_RX_BUF, 0, sizeof(strEsp8266_Fram_Record.Data_RX_BUF));
+    ESP8266_ATFrame_Reset();
 
     /* 1) AT basic */
     diag_send("AT");
@@ -284,14 +282,20 @@ void ESP8266_SendDHT11DataTest(void)
      * Evidence showed the old ISR->MQTT_RECV->PUB_REPLY path could block after
      * the first control command. */
     if (mqtt_flag && g_mqtt_rx_pending && g_mqtt_rx_len > 0) {
+        uint32_t primask = __get_PRIMASK();
+        /* Take the frame and drop the shared AT buffer in one step: the payload
+         * already lives in g_mqtt_rx_frame, and leaving the original text in
+         * place lets the next IDLE re-detect and re-execute the same command.
+         * Masked because FramLength/FramFinishFlag share one bitfield word with
+         * the USART3 ISR. */
+        __disable_irq();
         g_mqtt_rx_pending = 0;
+        ESP8266_ATFrame_Reset();
+        __set_PRIMASK(primask);
+
         ESP8266_MQTT_RECV();
         g_mqtt_rx_len = 0;
         g_mqtt_rx_frame[0] = '\0';
-        g_mqtt_rx_pending = 0;
-        strEsp8266_Fram_Record.InfBit.FramFinishFlag = 0;
-        strEsp8266_Fram_Record.InfBit.FramLength = 0;
-        strEsp8266_Fram_Record.Data_RX_BUF[0] = '\0';
     }
 
     /* (1.5) 30s health check (called every loop entry; runs real work every 30s) */
@@ -320,6 +324,12 @@ void ESP8266_SendDHT11DataTest(void)
     if (ESP8266_MQTT_PUB_STATUS()) {
         s_pub_fail_cnt = 0;
         s_last_pub_ok_ms = HAL_GetTick();
+        /* Only ever non-zero if the module out-talked the main loop and the ISR
+         * had to throw bytes away - worth seeing in the serial log. */
+        if (g_esp8266_rx_drop) {
+            printf("[WARN] USART3 RX dropped %lu byte(s) since boot (AT buffer full)\r\n",
+                   (unsigned long)g_esp8266_rx_drop);
+        }
     } else {
         s_pub_fail_cnt++;
         printf("[PUBLISH] FAILED consecutive %u/%u\r\n", s_pub_fail_cnt, PUBLISH_FAIL_THRESHOLD);

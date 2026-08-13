@@ -63,6 +63,15 @@ extern struct  STRUCT_USARTx_Fram                                  //´®¿ÚÊý¾ÝÖ¡µ
 	
 } strEsp8266_Fram_Record;
 
+/* When no AT command is waiting for a reply and the buffer has grown past this
+ * mark, the USART3 ISR drops the accumulated URC text. Without it a burst of
+ * unsolicited messages between two commands fills the 2 KB buffer and every
+ * further byte is lost until some command happens to reset it. */
+#define ESP8266_RX_HIGH_WATER   ( RX_BUF_MAX_LEN - 256 )
+
+/* Bytes the USART3 ISR had to discard because the AT buffer was full. */
+extern volatile uint32_t g_esp8266_rx_drop;
+
 extern struct STRUCT_USARTx_Fram strUSART_Fram_Record;
 extern struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record;
 
@@ -123,6 +132,8 @@ void                     ESP8266_ExitUnvarnishSend           ( void );
 bool                     ESP8266_SendString                  ( FunctionalState enumEnUnvarnishTx, char * pStr, uint32_t ulStrLength, ENUM_ID_NO_TypeDef ucId );
 char *                   ESP8266_ReceiveString               ( FunctionalState enumEnUnvarnishTx );
 bool                     ESP8266_DHCP_CUR                    ( void );
+void                     ESP8266_ATFrame_Reset               ( void );   /* atomic reset of the AT response buffer (IRQ masked) */
+bool                     ESP8266_AT_CmdInFlight              ( void );   /* true while ESP8266_Cmd() is waiting for a reply */
 
 
 #endif

@@ -4,6 +4,7 @@
 #include <string.h>  
 #include <stdbool.h>
 #include "./dwt_delay/core_delay.h"
+#include "./wdg/bsp_iwdg.h"
 #include "./led/bsp_led.h" 
 
 static void                   ESP8266_GPIO_Config                 ( void );
@@ -14,6 +15,40 @@ struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record = { 0 };
 struct  STRUCT_USARTx_Fram strUSART_Fram_Record = { 0 };
 
 UART_HandleTypeDef Uart3Handle;
+
+/* Grace period after a reply keyword was matched, so the tail of the frame (and
+ * any URC the module appends right behind it) lands before the caller fires the
+ * next command. Still far cheaper than waiting out the full timeout. */
+#define macESP8266_AT_SETTLE_MS     20
+
+/* Set while ESP8266_Cmd() is waiting for a reply. The USART3 ISR reads it to
+ * tell "bytes somebody asked for" from "unsolicited traffic nobody is holding". */
+static volatile uint8_t s_at_cmd_in_flight = 0;
+
+volatile uint32_t g_esp8266_rx_drop = 0;
+
+/*
+ * Reset the AT response buffer with interrupts masked.
+ * FramLength and FramFinishFlag are bitfields sharing one 16-bit word, so a
+ * plain assignment from thread mode is a read-modify-write: if the USART3 ISR
+ * stores a byte in the middle of it, the write-back silently reverts the
+ * length the ISR just advanced.
+ */
+void ESP8266_ATFrame_Reset ( void )
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    strEsp8266_Fram_Record .InfBit .FramLength     = 0;
+    strEsp8266_Fram_Record .InfBit .FramFinishFlag = 0;
+    strEsp8266_Fram_Record .Data_RX_BUF [ 0 ]      = '\0';
+    __set_PRIMASK ( primask );
+}
+
+bool ESP8266_AT_CmdInFlight ( void )
+{
+    return s_at_cmd_in_flight ? true : false;
+}
 
 /**
   * @brief  ESP8266��ʼ������
@@ -159,21 +194,59 @@ bool ESP8266_Cmd ( char * cmd, char * reply1, char * reply2, uint32_t waittime )
 {    
     bool hit1 = false;
     bool hit2 = false;
-    strEsp8266_Fram_Record .InfBit .FramLength = 0;               //���¿�ʼ�����µ����ݰ�
+    uint32_t start;
+    uint16_t seen_len = 0;
+
+    /* Drop whatever the module said before this command, then send. */
+    ESP8266_ATFrame_Reset();
+    s_at_cmd_in_flight = 1;
     macESP8266_Usart ( "%s\r\n", cmd );
     
     if ( ( reply1 == 0 ) && ( reply2 == 0 ) )                      //����Ҫ��������
+    {
+        s_at_cmd_in_flight = 0;
         return true;
+    }
     
-    HAL_Delay ( waittime );                 //��ʱ
+    /*
+     * Poll for the expected keyword instead of unconditionally burning the
+     * whole waittime. The ISR keeps Data_RX_BUF NUL-terminated after every
+     * byte, so matching can start the moment new data lands and waittime
+     * turns into a ceiling rather than a fixed cost: a normal "OK" used to
+     * cost 500..5000 ms, now it costs a few ms.
+     * Only FramLength is read here - nothing in this loop writes to the
+     * shared bitfield word, so it cannot corrupt what the ISR is doing.
+     */
+    start = HAL_GetTick();
+    do
+    {
+        uint16_t len = strEsp8266_Fram_Record .InfBit .FramLength;
+
+        if ( len != seen_len )
+        {
+            seen_len = len;
+
+            hit1 = ( reply1 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply1 ) != NULL ) : false;
+            hit2 = ( reply2 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply2 ) != NULL ) : false;
+
+            if ( hit1 || hit2 )
+            {
+                HAL_Delay ( macESP8266_AT_SETTLE_MS );
+                break;
+            }
+        }
+
+        IWDG_Feed();
+    }
+    while ( ( HAL_GetTick() - start ) < waittime );
     
-    strEsp8266_Fram_Record .Data_RX_BUF [ strEsp8266_Fram_Record .InfBit .FramLength ]  = '\0';
-    hit1 = ( reply1 != 0 ) ? ( ( bool ) strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply1 ) ) : false;
-    hit2 = ( reply2 != 0 ) ? ( ( bool ) strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply2 ) ) : false;
+    s_at_cmd_in_flight = 0;
     
-    macPC_Usart ( "���յ��ķ���ֵ��%s", strEsp8266_Fram_Record .Data_RX_BUF );
-    strEsp8266_Fram_Record .InfBit .FramLength = 0;                             //������ձ�־
-    strEsp8266_Fram_Record.InfBit.FramFinishFlag = 0;                             
+    macPC_Usart ( "[AT RX] %s", strEsp8266_Fram_Record .Data_RX_BUF );
+
+    /* The reply is deliberately left in the buffer: callers such as the health
+       check and MQTT_SUB inspect it for URCs like +MQTTDISCONNECTED right after
+       this call returns. The next ESP8266_Cmd() clears it atomically. */                             
     if ( ( reply1 != 0 ) && ( reply2 != 0 ) )
         return ( hit1 || hit2 );
     

@@ -46,8 +46,8 @@
 #include <string.h>
 
 
-uint16_t publish_task_time=0;//���������ʱ����ֵ
-extern uint8_t publish_flag;//���������־
+uint16_t publish_task_time=0;//���������ʱ�����?
+extern uint8_t publish_flag;//����������?
 
     
 /* Private typedef -----------------------------------------------------------*/
@@ -160,7 +160,7 @@ void SysTick_Handler(void)
     if(mqtt_flag == 1)//mqtt������
     {
         publish_task_time++;
-        if (publish_task_time == 5000)   //DHT11�ɼ���Ҫ�������2��
+        if (publish_task_time == 5000)   //DHT11�ɼ���Ҫ�������?��
         {
             publish_task_time=0;
             publish_flag =1;
@@ -176,23 +176,63 @@ void SysTick_Handler(void)
   */
 void DEBUG_USART_IRQHandler(void)
 {
-  uint8_t ucCh;
-	if ( __HAL_USART_GET_FLAG ( &UartHandle, USART_FLAG_RXNE ) != RESET )
-	{
-		 HAL_UART_Receive( &UartHandle,(uint8_t *)&ucCh, 1, 1000 );
+    uint32_t sr = UartHandle.Instance->SR;
+    uint8_t  dr_taken = 0;
+
+    /* Same reasoning as the USART3 handler below: never call HAL_UART_Receive()
+     * from an ISR. It takes the handle lock that fputc()'s HAL_UART_Transmit()
+     * holds for the whole of every printf(), so it would return HAL_BUSY without
+     * ever reading DR: RXNE stays set and this ISR re-enters forever.
+     * Dormant today - DEBUG_USART_Config() leaves the USART1 RX interrupt off -
+     * but it has to be safe the day the debug port starts accepting input. */
+    if ( sr & ( USART_SR_RXNE | USART_SR_ORE ) )
+    {
+        uint8_t  ucCh = ( uint8_t ) ( UartHandle.Instance->DR & 0xFF );
+        uint16_t len  = strUSART_Fram_Record .InfBit .FramLength;
+
+        /* Reading SR (above) then DR clears RXNE and ORE in one go, so an
+         * overrun cannot wedge the handler either. */
+        dr_taken = 1;
 		
-		if ( strUSART_Fram_Record .InfBit .FramLength < ( RX_BUF_MAX_LEN - 1 ) )                       //Ԥ��1���ֽ�д������
-			   strUSART_Fram_Record .Data_RX_BUF [ strUSART_Fram_Record .InfBit .FramLength ++ ]  = ucCh;
-        __HAL_UART_CLEAR_FLAG( &UartHandle, USART_FLAG_RXNE );
-	}
+        if ( ( sr & USART_SR_RXNE ) && ( len < ( RX_BUF_MAX_LEN - 1 ) ) )
+        {                       //Ԥ��1���ֽ�д������
+            strUSART_Fram_Record .Data_RX_BUF [ len ]     = ( char ) ucCh;
+            strUSART_Fram_Record .InfBit .FramLength      = len + 1;
+            strUSART_Fram_Record .Data_RX_BUF [ len + 1 ] = '\0';
+        }
+    }
 	 	 
-	if (__HAL_USART_GET_FLAG ( &UartHandle, USART_FLAG_IDLE ) == SET )                                         //����֡�������
+    if ( sr & USART_SR_IDLE )                                         //����֡�������?
 	{
+        if ( !dr_taken )
+        {
+            ( void ) UartHandle.Instance->DR;
+        }
+
         strUSART_Fram_Record .InfBit .FramFinishFlag = 1;		
 		
-		 HAL_UART_Receive( &UartHandle,(uint8_t *)&ucCh, 1, 1000 );                  //��������������жϱ�־λ(�ȶ�USART_SR��Ȼ���USART_DR)	
-         __HAL_UART_CLEAR_IDLEFLAG(&UartHandle);
+        /* IDLE is already cleared by the SR read at the top of the handler
+         * plus the DR read above. __HAL_UART_CLEAR_IDLEFLAG() must not be used
+         * here: it reads DR a second time and would swallow a byte that
+         * arrived in the meantime. */
     }
+}
+
+/**
+  * @brief  Last occurrence of needle in hay (strstr only finds the first one).
+  */
+static const char * last_occurrence ( const char * hay, const char * needle )
+{
+    const char * hit  = NULL;
+    const char * scan = strstr ( hay, needle );
+
+    while ( scan != NULL )
+    {
+        hit  = scan;
+        scan = strstr ( scan + 1, needle );
+    }
+
+    return hit;
 }
 
 /**
@@ -202,41 +242,91 @@ void DEBUG_USART_IRQHandler(void)
   */
 void macESP8266_USART_INT_FUN ( void )
 {	
-    char ucCh;
-    if ( __HAL_USART_GET_FLAG( &Uart3Handle, USART_FLAG_RXNE ) != RESET )
+    uint32_t sr = Uart3Handle.Instance->SR;
+    uint8_t  dr_taken = 0;
+
+    /* Read DR directly instead of calling HAL_UART_Receive(): that HAL call
+     * takes the per-handle lock which HAL_UART_Transmit() holds while thread
+     * mode is sending, so it returns HAL_BUSY without ever reading DR. RXNE
+     * would stay set, this ISR would re-enter immediately and forever, and the
+     * transmit it starves could never release the lock.
+     * Reading SR (above) and then DR also clears an ORE overrun, which would
+     * otherwise block every further byte on this port. */
+    if ( sr & ( USART_SR_RXNE | USART_SR_ORE ) )
     {
-        HAL_UART_Receive( &Uart3Handle,(uint8_t *)&ucCh, 1, 1000 );
-        
-        if ( strEsp8266_Fram_Record .InfBit .FramLength < ( RX_BUF_MAX_LEN - 1 ) )                       //Ԥ��1���ֽ�д������
-            strEsp8266_Fram_Record .Data_RX_BUF [ strEsp8266_Fram_Record .InfBit .FramLength ++ ]  = ucCh;
-        __HAL_UART_CLEAR_FLAG( &Uart3Handle, USART_FLAG_RXNE );
+        uint8_t  ucCh = ( uint8_t ) ( Uart3Handle.Instance->DR & 0xFF );
+        uint16_t len  = strEsp8266_Fram_Record .InfBit .FramLength;
+
+        dr_taken = 1;
+
+        if ( sr & USART_SR_ORE )
+        {
+            g_esp8266_rx_drop++;     /* hardware overrun: at least one byte lost */
+        }
+
+        if ( sr & USART_SR_RXNE )
+        {
+            if ( len < ( RX_BUF_MAX_LEN - 1 ) )
+            {
+                strEsp8266_Fram_Record .Data_RX_BUF [ len ] = ( char ) ucCh;
+                strEsp8266_Fram_Record .InfBit .FramLength  = len + 1;
+                /* Keep the buffer terminated after every byte so thread mode
+                   can strstr() it without waiting for the IDLE frame gap. */
+                strEsp8266_Fram_Record .Data_RX_BUF [ len + 1 ] = '\0';
+            }
+            else
+            {
+                g_esp8266_rx_drop++;
+            }
+        }
     }
         
-    if ( __HAL_USART_GET_FLAG( &Uart3Handle, USART_FLAG_IDLE ) == SET )                                         //����֡�������
+    if ( sr & USART_SR_IDLE )
     {
+        if ( !dr_taken )
+        {
+            ( void ) Uart3Handle.Instance->DR;   /* SR was read above; reading DR clears IDLE */
+        }
+
         strEsp8266_Fram_Record .InfBit .FramFinishFlag = 1;
-        strEsp8266_Fram_Record .Data_RX_BUF [ strEsp8266_Fram_Record .InfBit .FramLength ] = '\0';
 
         ucTcpClosedFlag = strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "CLOSED\r\n" ) ? 1 : 0;
         if(mqtt_flag ==1 )//mqtt��������
         {
-            if (!g_mqtt_rx_pending &&
-                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "+MQTTSUBRECV") &&
-                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "\"type\":\"command\"") &&
-                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "\"name\":\"onoff\""))
+            /* Scan from the LAST +MQTTSUBRECV in the buffer, not the first.
+             * The board subscribes to the very topic it publishes replies on,
+             * so an echo of our own reply is regularly still sitting in the
+             * buffer. Parsing from the first URC would read "type":"reply" and
+             * silently drop the real command that arrived behind it. */
+            const char * urc = last_occurrence ( strEsp8266_Fram_Record.Data_RX_BUF, "+MQTTSUBRECV" );
+
+            if (!g_mqtt_rx_pending && ( urc != NULL ) &&
+                strstr(urc, "\"type\":\"command\"") &&
+                strstr(urc, "\"name\":\"onoff\""))
             {
-                uint16_t copy_len = strEsp8266_Fram_Record.InfBit.FramLength;
+                uint16_t offset   = (uint16_t)( urc - strEsp8266_Fram_Record.Data_RX_BUF );
+                uint16_t copy_len = strEsp8266_Fram_Record.InfBit.FramLength - offset;
                 if (copy_len >= RX_BUF_MAX_LEN)
                 {
                     copy_len = RX_BUF_MAX_LEN - 1;
                 }
-                memcpy(g_mqtt_rx_frame, strEsp8266_Fram_Record.Data_RX_BUF, copy_len);
+                memcpy(g_mqtt_rx_frame, urc, copy_len);
                 g_mqtt_rx_frame[copy_len] = '\0';
                 g_mqtt_rx_len = copy_len;
                 g_mqtt_rx_pending = 1;
             }
         }
-        __HAL_UART_CLEAR_IDLEFLAG(&Uart3Handle);
+        /* Nobody is waiting for this data and the buffer is nearly full: drop
+           it now. Otherwise a burst of unsolicited URCs between two commands
+           fills the 2 KB buffer and every later byte is lost until some AT
+           command happens to reset it. */
+        if ( !ESP8266_AT_CmdInFlight() &&
+             ( strEsp8266_Fram_Record .InfBit .FramLength >= ESP8266_RX_HIGH_WATER ) )
+        {
+            strEsp8266_Fram_Record .InfBit .FramLength     = 0;
+            strEsp8266_Fram_Record .InfBit .FramFinishFlag = 0;
+            strEsp8266_Fram_Record .Data_RX_BUF [ 0 ]      = '\0';
+        }
     }	
 
 }

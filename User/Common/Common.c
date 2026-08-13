@@ -6,7 +6,28 @@
 
 static char *                 itoa                                ( int value, char * string, int radix );
 
-extern UART_HandleTypeDef Uart3Handle;
+/*
+ * Blocking single byte write straight to the peripheral registers.
+ * HAL_UART_Transmit() must not be used here: it takes the per-handle lock, and
+ * a receive interrupt that fires while that lock is held cannot read DR, which
+ * livelocks the RX ISR against this transmit. Going at the registers directly
+ * keeps the two directions independent.
+ * It also makes the USARTx argument meaningful again - the old code ignored it
+ * and always sent on USART3.
+ */
+static void USART_SendByte ( USART_TypeDef * USARTx, uint8_t ch )
+{
+    uint32_t guard = 0;
+
+    /* Bounded spin: one byte needs ~87 us at 115200 baud, so this only ever
+       expires when the peripheral is not clocked. Beats hanging forever. */
+    while ( ( ( USARTx->SR & USART_SR_TXE ) == 0 ) && ( guard < 200000u ) )
+    {
+        guard++;
+    }
+
+    USARTx->DR = ( uint16_t ) ( ch & 0x01FF );
+}
 
 /*
  * 函数名：USART2_printf
@@ -39,12 +60,12 @@ void USART_printf ( USART_TypeDef * USARTx, char * Data, ... )
 			switch ( *++Data )
 			{
 				case 'r':							          //回车符
-                    HAL_UART_Transmit(&Uart3Handle, &hc,1,1000);
+                    USART_SendByte(USARTx, hc);
                     Data ++;
 				break;
 
 				case 'n':							          //换行符
-				HAL_UART_Transmit(&Uart3Handle, &hh,1,1000);	
+				USART_SendByte(USARTx, hh);	
 				Data ++;
 				break;
 
@@ -63,7 +84,7 @@ void USART_printf ( USART_TypeDef * USARTx, char * Data, ... )
 				
 				for ( ; *s; s++) 
 				{
-					HAL_UART_Transmit(&Uart3Handle,(uint8_t *)s,1,1000);
+					USART_SendByte(USARTx, (uint8_t)*s);
 //					while( __HAL_USART_GET_FLAG(&Uart3Handle, USART_FLAG_TXE) == RESET );
 				}
 				
@@ -79,7 +100,7 @@ void USART_printf ( USART_TypeDef * USARTx, char * Data, ... )
 				
 				for (s = buf; *s; s++) 
 				{
-					HAL_UART_Transmit(&Uart3Handle,(uint8_t *)s,1,1000);
+					USART_SendByte(USARTx, (uint8_t)*s);
 //					while( __HAL_USART_GET_FLAG(&Uart3Handle, USART_FLAG_TXE) == RESET );
 				}
 				
@@ -95,7 +116,7 @@ void USART_printf ( USART_TypeDef * USARTx, char * Data, ... )
 			}		 
 		}
 		
-		else HAL_UART_Transmit(&Uart3Handle, (uint8_t *)Data++,1,1000);
+		else USART_SendByte(USARTx, (uint8_t)*Data++);
 		
 //		while ( __HAL_USART_GET_FLAG(&Uart3Handle, USART_FLAG_TXE ) == RESET );
 		

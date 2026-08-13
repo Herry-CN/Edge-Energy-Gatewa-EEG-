@@ -761,6 +761,11 @@
               <FilePath>..\User\Common\Common.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_iwdg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\wdg\bsp_iwdg.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_esp8266.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\User\ESP8266\bsp_esp8266.c</FilePath>

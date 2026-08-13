@@ -27,6 +27,7 @@
 #include "./ESP8266/bsp_esp8266.h"
 #include "./systick/bsp_SysTick.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
+#include "./wdg/bsp_iwdg.h"
 
 
 uint8_t publish_flag =0;//���������־
@@ -46,6 +47,11 @@ int main(void)
     DEBUG_USART_Config();
     printf("\r\n--- Charging Pile MQTT Demo (STM32F103ZE + ESP8266 MQTT-AT 1MB) ---\r\n"
              "Edit ESP8266/bsp_esp8266_test.h to change: WiFi SSID, device ID, MQTT broker.\r\n");
+    /* Arm the watchdog before the (blocking) startup chain, and report why the
+     * board came up. An "IWDG WATCHDOG TIMEOUT" line in the serial log is the
+     * quickest way to tell a real lock-up from a power glitch. */
+    IWDG_Config();
+    printf("[BOOT] reset reason: %s\r\n", IWDG_GetResetReason());
     /* LED GPIO init */
     LED_GPIO_Config();
     /* DHT11 temp/humidity sensor init */
@@ -57,6 +63,9 @@ int main(void)
     
     while (1)
     {
+        /* Kick the watchdog once per iteration. Everything that can block for
+         * longer than a loop pass (ESP8266_Cmd) feeds it internally as well. */
+        IWDG_Feed();
         /* Always poll business service:
          * - handles MQTT downlink pending flag immediately
          * - handles periodic status publish only when publish_flag is set */
