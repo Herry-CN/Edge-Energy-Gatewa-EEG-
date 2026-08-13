@@ -42,6 +42,52 @@
 #define      MQTT_USER_NAME                               "charge"
 #define      MQTT_PASSWD                                  "123456"
 
+/* ========== 协议开关：迁移期 EEG V1.0 与旧私有协议并行 ==========
+ * 两个都开 = 双发：同一份数据同时走 eeg/... 新主题树和 /device/... 旧主题，
+ * 后端切完、MQTTX 对照验证过之后，把 LEGACY 关掉即可，代码不用动。 */
+#define      EEG_PROTO_ENABLE                             1
+#define      LEGACY_PROTO_ENABLE                          1
+
+/* ================= EEG V1.0 主题树（Doc/MQTT 网关通信协议 V1.0.md §3） =================
+ * eeg/{site}/{gateway}/{device_type}/{device_id}/{channel}
+ * device_type 取自文档固定枚举：gateway/charger/battery/inverter/meter/sensor
+ * TODO: 出厂时把 site/gateway/device 换成真实编号（同 MQTT_DEVICE_ID 一样应落到配置区） */
+#define      EEG_SITE_ID                                  "site01"
+#define      EEG_GATEWAY_ID                               "gw001"
+#define      EEG_DEVICE_TYPE                              "charger"
+#define      EEG_DEVICE_ID                                "ch001"
+
+#define      EEG_FW_VERSION                               "EEG-1.0.0"
+#define      EEG_HW_VERSION                               "STM32F103+ESP8266"
+
+#define      EEG_TOPIC_ROOT                               "eeg/" EEG_SITE_ID "/" EEG_GATEWAY_ID
+#define      EEG_TOPIC_GW_STATUS                          EEG_TOPIC_ROOT "/gateway/" EEG_GATEWAY_ID "/status"   /* §5 */
+#define      EEG_TOPIC_DEV                                EEG_TOPIC_ROOT "/" EEG_DEVICE_TYPE "/" EEG_DEVICE_ID
+#define      EEG_TOPIC_DEV_STATUS                         EEG_TOPIC_DEV "/status"                               /* §6 */
+#define      EEG_TOPIC_DEV_CMD                            EEG_TOPIC_DEV "/cmd"                                  /* §7 */
+#define      EEG_TOPIC_DEV_ACK                            EEG_TOPIC_DEV "/ack"                                  /* §8 */
+#define      EEG_TOPIC_DEV_EVENT                          EEG_TOPIC_DEV "/event"                                /* §9 */
+
+/* §4 Retain：网关状态 / 设备状态 = true，命令 / ACK / 事件 = false */
+#define      EEG_RETAIN_STATUS                            1
+#define      EEG_RETAIN_TRANSIENT                         0
+
+/* 网关状态是心跳性质的，不必跟设备状态一样 5s 一发 */
+#define      EEG_GW_STATUS_INTERVAL_MS                    60000
+
+/* ================= SNTP 对时（ts 字段要的是 Unix 秒） =================
+ * 时区固定 0：AT+CIPSNTPTIME? 回的是可读时间串，按 UTC 解析才能直接换算 epoch。
+ * 对不上时（没有外网）自动退化成开机秒数，见 EEG_TimeIsSynced()。 */
+#define      EEG_SNTP_SERVER1                             "ntp.aliyun.com"
+#define      EEG_SNTP_SERVER2                             "cn.pool.ntp.org"
+#define      EEG_SNTP_RESYNC_MS                           21600000UL   /* 6h 重新校一次 */
+#define      EEG_SNTP_MIN_VALID_YEAR                      2023         /* 小于此年份视为没对上 */
+
+/* ================= §9 事件：过温告警（带回差，避免抖动刷屏） ================= */
+#define      EEG_TEMP_ALARM_C                             60
+#define      EEG_TEMP_CLEAR_C                             55
+#define      EEG_EVT_CODE_OVER_TEMP                       201
+
 /* ================= MQTT 主题（文档 §4.2 / §5.1 / §7.1 严格对应） ================= */
 #define      MQTT_SUBSCRIBE_TOPIC_CTRL                    "/device/" MQTT_DEVICE_ID "/control"
 #define      MQTT_SUBSCRIBE_TOPIC_CTRLL                   "/device/" MQTT_DEVICE_ID "/controll"

@@ -55,6 +55,7 @@
 "..\output\bsp_esp8266.o"
 "..\output\bsp_esp8266_test.o"
 "..\output\bsp_systick.o"
+"..\output\bsp_eeg_proto.o"
 "..\output\bsp_esp8266_mqtt.o"
 --library_type=microlib --strict --scatter "..\Output\Fire_F103ZE.sct"
 --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols

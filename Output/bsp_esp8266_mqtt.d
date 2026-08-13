@@ -63,4 +63,5 @@
 ..\output\bsp_esp8266_mqtt.o: ..\User\./led/bsp_led.h
 ..\output\bsp_esp8266_mqtt.o: ..\User\./ESP8266/bsp_esp8266.h
 ..\output\bsp_esp8266_mqtt.o: ..\User\./ESP8266/bsp_esp8266_test.h
+..\output\bsp_esp8266_mqtt.o: ..\User\./ESP8266/bsp_eeg_proto.h
 ..\output\bsp_esp8266_mqtt.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdlib.h

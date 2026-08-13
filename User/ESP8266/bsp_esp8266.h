@@ -72,6 +72,11 @@ extern struct  STRUCT_USARTx_Fram                                  //´®¿ÚÊý¾ÝÖ¡µ
 /* Bytes the USART3 ISR had to discard because the AT buffer was full. */
 extern volatile uint32_t g_esp8266_rx_drop;
 
+/* Espressif hard limit: "the length of the entire AT command should be less
+ * than 256 bytes" (ESP-AT MQTT_AT_Commands, Notes under AT+MQTTPUB). Anything
+ * longer has to go out through AT+MQTTPUBRAW instead. */
+#define ESP8266_AT_CMD_LIMIT    256
+
 extern struct STRUCT_USARTx_Fram strUSART_Fram_Record;
 extern struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record;
 
@@ -134,6 +139,8 @@ char *                   ESP8266_ReceiveString               ( FunctionalState e
 bool                     ESP8266_DHCP_CUR                    ( void );
 void                     ESP8266_ATFrame_Reset               ( void );   /* atomic reset of the AT response buffer (IRQ masked) */
 bool                     ESP8266_AT_CmdInFlight              ( void );   /* true while ESP8266_Cmd() is waiting for a reply */
+void                     ESP8266_SendRaw                     ( const char * data, uint16_t len );                       /* payload bytes only, no CR/LF, no formatting */
+bool                     ESP8266_AT_WaitFor                  ( const char * reply1, const char * reply2, uint32_t waittime ); /* poll the buffer without sending/clearing */
 
 
 #endif

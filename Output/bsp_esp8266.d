@@ -58,7 +58,8 @@
 ..\output\bsp_esp8266.o: ..\User\./common/common.h
 ..\output\bsp_esp8266.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 ..\output\bsp_esp8266.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
+..\output\bsp_esp8266.o: ..\User\./ESP8266/bsp_esp8266_mqtt.h
 ..\output\bsp_esp8266.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
 ..\output\bsp_esp8266.o: ..\User\./dwt_delay/core_delay.h
-..\output\bsp_esp8266.o: ..\User\./wdg/bsp_iwdg.h
 ..\output\bsp_esp8266.o: ..\User\./led/bsp_led.h
+..\output\bsp_esp8266.o: ..\User\./wdg/bsp_iwdg.h

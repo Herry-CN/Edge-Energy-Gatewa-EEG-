@@ -22,6 +22,7 @@
 #include "./led/bsp_led.h"
 #include "./usart/bsp_debug_usart.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
+#include "./ESP8266/bsp_eeg_proto.h"
 
 /* ================ 对外/导入全局变量 ================ */
 DHT11_Data_TypeDef DHT11_Data;
@@ -38,6 +39,8 @@ static uint8_t  s_pub_fail_cnt = 0;   /* publish 连续失败次数（≥3 → �
 static uint8_t  s_health_fail = 0;    /* 健康检测连续失败 */
 static uint32_t s_last_health_ms = 0;/* 上一次健康检测时间戳 */
 static uint32_t s_last_pub_ok_ms = 0;/* 最近一次 publish 成功时间戳 */
+static uint32_t s_last_gw_ms = 0;    /* 上一次网关状态心跳时间戳（§5）*/
+static uint32_t s_last_rx_drop = 0;  /* 上次报告过的下行丢帧数 */
 #define HEALTH_INTERVAL_MS       30000   /* 30s 一次健康检测（§8：3×上报间隔 ≈ 15s 保守取 30s）*/
 #define PUBLISH_FAIL_THRESHOLD   3
 #define HEALTH_FAIL_THRESHOLD    2
@@ -81,6 +84,13 @@ static void do_health_check(void)
     if (HAL_GetTick() - s_last_health_ms < HEALTH_INTERVAL_MS) return;
     s_last_health_ms = HAL_GetTick();
 
+    /* 下行队列被打满或帧超长时唯一的外部信号，别让它悄悄丢 */
+    if (g_mqtt_rx_dropped != s_last_rx_drop) {
+        printf("[HEALTH] downlink frames dropped: %lu (queue full or frame >= %d bytes)\r\n",
+               (unsigned long)g_mqtt_rx_dropped, (int)MQTT_RX_SLOT_LEN);
+        s_last_rx_drop = g_mqtt_rx_dropped;
+    }
+
     /* A recent successful publish is stronger evidence than this firmware's
      * ambiguous AT+MQTTCONN? response format. */
     if ((HAL_GetTick() - s_last_pub_ok_ms) < HEALTH_INTERVAL_MS) {
@@ -111,6 +121,7 @@ static void do_health_check(void)
         ESP8266_MQTT_CONN() &&
         ESP8266_MQTT_SUB()) {
         s_health_fail = 0;
+        MQTT_RxQueue_Reset();   /* 上一段会话残留的帧不要带到新会话里执行 */
         mqtt_flag = 1;
         printf("[HEALTH] quick reconnect OK (USERCFG+CONNCFG+CONN+SUB)\r\n");
         return;
@@ -267,9 +278,23 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
         HAL_Delay(150);
     }
 
+    MQTT_RxQueue_Reset();
     mqtt_flag = 1;
     s_last_health_ms = HAL_GetTick();
     s_last_pub_ok_ms = HAL_GetTick();
+
+#if EEG_PROTO_ENABLE
+    /* 6) 对时 + 网关上线（§5）。SNTP 拉不到就退化成开机秒数，不阻塞启动。 */
+    printf("\r\nSNTP time sync (ts field needs Unix seconds)......\r\n");
+    EEG_TimeInit();
+    HAL_Delay(1500);              /* 给模块一点时间完成首次对时 */
+    if (!EEG_TimeSync()) {
+        printf("[EEG SNTP] not synced yet - ts falls back to uptime, will retry every 60s\r\n");
+    }
+    s_last_gw_ms = HAL_GetTick();
+    EEG_PublishGatewayStatus();
+#endif
+
     printf("\r\nESP8266 FULL CHAIN CONFIGURED OK\r\n");
     printf("Awaiting MQTT onoff commands (value=0 start / value=2 stop)......\r\n");
     LED1_OFF;   /* Red LED off = startup complete */
@@ -281,25 +306,26 @@ void ESP8266_SendDHT11DataTest(void)
     /* (1) Process MQTT downlink in main loop first, never inside USART3 ISR.
      * Evidence showed the old ISR->MQTT_RECV->PUB_REPLY path could block after
      * the first control command. */
-    if (mqtt_flag && g_mqtt_rx_pending && g_mqtt_rx_len > 0) {
-        uint32_t primask = __get_PRIMASK();
-        /* Take the frame and drop the shared AT buffer in one step: the payload
-         * already lives in g_mqtt_rx_frame, and leaving the original text in
-         * place lets the next IDLE re-detect and re-execute the same command.
-         * Masked because FramLength/FramFinishFlag share one bitfield word with
-         * the USART3 ISR. */
-        __disable_irq();
-        g_mqtt_rx_pending = 0;
-        ESP8266_ATFrame_Reset();
-        __set_PRIMASK(primask);
+    if (mqtt_flag) {
+        static char frame[MQTT_RX_SLOT_LEN];   /* 静态：别在 1KB 主栈上摆 512 字节 */
+        int budget = MQTT_RX_SLOTS;            /* 一轮最多处理一队，别饿死上报 */
 
-        ESP8266_MQTT_RECV();
-        g_mqtt_rx_len = 0;
-        g_mqtt_rx_frame[0] = '\0';
+        /* 取的是私有副本，Dispatch 期间 ISR 可以继续往队列里塞新帧。
+         * 队列本身不受 ESP8266_ATFrame_Reset() 影响，所以派发时发 ACK
+         * （上百毫秒的 AT 往返）不会再吃掉后面到达的命令。 */
+        while (budget-- > 0 && MQTT_RxQueue_Pop(frame, sizeof(frame))) {
+            /* 迁移期两套协议同时订阅着，由 Dispatch 按主题决定交给谁解析 */
+            ESP8266_MQTT_Dispatch(frame);
+        }
     }
 
     /* (1.5) 30s health check (called every loop entry; runs real work every 30s) */
     do_health_check();
+
+#if EEG_PROTO_ENABLE
+    /* 未对上时每分钟重试，对上后每 6h 重新校一次 */
+    EEG_TimeTask();
+#endif
 
     /* (2) SysTick publish_flag == 1 only every 5s AND mqtt online */
     if (!(publish_flag && mqtt_flag)) return;
@@ -314,31 +340,52 @@ void ESP8266_SendDHT11DataTest(void)
                DHT11_Data.humi_int, DHT11_Data.humi_deci,
                DHT11_Data.temp_int, DHT11_Data.temp_deci,
                (unsigned)g_onoff_state);
-        /* Suppress unused warning in production where DHT11 is replaced */
-        (void)DHT11_Data;
+        /* §6 temperature 字段暂时用板载 DHT11 顶着，等 Modbus 桩体温度接进来再换 */
+        g_temperature = (int16_t)DHT11_Data.temp_int;
     } else {
         printf("\r\n[WARN] DHT11 sample FAILED. Use last cached meter values for report.\r\n");
     }
 
-    /* ② PUBLISH status (4-field integer multipliers, QoS1, retain1) */
-    if (ESP8266_MQTT_PUB_STATUS()) {
-        s_pub_fail_cnt = 0;
-        s_last_pub_ok_ms = HAL_GetTick();
-        /* Only ever non-zero if the module out-talked the main loop and the ISR
-         * had to throw bytes away - worth seeing in the serial log. */
-        if (g_esp8266_rx_drop) {
-            printf("[WARN] USART3 RX dropped %lu byte(s) since boot (AT buffer full)\r\n",
-                   (unsigned long)g_esp8266_rx_drop);
-        }
-    } else {
-        s_pub_fail_cnt++;
-        printf("[PUBLISH] FAILED consecutive %u/%u\r\n", s_pub_fail_cnt, PUBLISH_FAIL_THRESHOLD);
-        if (s_pub_fail_cnt >= PUBLISH_FAIL_THRESHOLD) {
-            mqtt_flag = 0;
-            rebuild_full_chain();       /* Watchdog-level full chain rebuild */
+    /* ② PUBLISH：迁移期 EEG 与旧私有协议双发，任一条失败都计入失败计数 */
+    EEG_UpdateDerived();
+    {
+        bool pub_ok = true;
+#if EEG_PROTO_ENABLE
+        if (!EEG_PublishDeviceStatus()) pub_ok = false;
+#endif
+#if LEGACY_PROTO_ENABLE
+        if (!ESP8266_MQTT_PUB_STATUS()) pub_ok = false;
+#endif
+        if (pub_ok) {
+            s_pub_fail_cnt = 0;
+            s_last_pub_ok_ms = HAL_GetTick();
+            /* Only ever non-zero if the module out-talked the main loop and the ISR
+             * had to throw bytes away - worth seeing in the serial log. */
+            if (g_esp8266_rx_drop) {
+                printf("[WARN] USART3 RX dropped %lu byte(s) since boot (AT buffer full)\r\n",
+                       (unsigned long)g_esp8266_rx_drop);
+            }
+        } else {
+            s_pub_fail_cnt++;
+            printf("[PUBLISH] FAILED consecutive %u/%u\r\n", s_pub_fail_cnt, PUBLISH_FAIL_THRESHOLD);
+            if (s_pub_fail_cnt >= PUBLISH_FAIL_THRESHOLD) {
+                mqtt_flag = 0;
+                rebuild_full_chain();       /* Watchdog-level full chain rebuild */
+                return;
+            }
         }
     }
 
+#if EEG_PROTO_ENABLE
+    /* ③ §9 过温告警（带回差，只在跨阈值时发一条） */
+    EEG_CheckTempAlarm();
+
+    /* ④ §5 网关状态心跳（比设备状态慢得多，60s 一次） */
+    if ((HAL_GetTick() - s_last_gw_ms) >= EEG_GW_STATUS_INTERVAL_MS) {
+        s_last_gw_ms = HAL_GetTick();
+        EEG_PublishGatewayStatus();
+    }
+#endif
 }
 
 /************************ END OF FILE *****************************/

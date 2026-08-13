@@ -1,4 +1,5 @@
 #include "./ESP8266/bsp_esp8266.h"
+#include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./common/common.h"
 #include <stdio.h>  
 #include <string.h>  
@@ -39,9 +40,17 @@ void ESP8266_ATFrame_Reset ( void )
     uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
+    /* Bank any downlink frame that already arrived in full before the buffer is
+     * thrown away: without this, a command that lands just as thread mode is
+     * about to send the next AT command gets its +MQTTSUBRECV header wiped and
+     * can never be recognised again. Masked here, and otherwise only called
+     * from the USART3 ISR, so the harvest never runs re-entrantly. */
+    MQTT_RxQueue_Harvest();
+
     strEsp8266_Fram_Record .InfBit .FramLength     = 0;
     strEsp8266_Fram_Record .InfBit .FramFinishFlag = 0;
     strEsp8266_Fram_Record .Data_RX_BUF [ 0 ]      = '\0';
+    MQTT_RxScan_Reset();
     __set_PRIMASK ( primask );
 }
 
@@ -190,12 +199,95 @@ bool ESP8266_DHCP_CUR ( )
  *         0��ָ���ʧ��
  * ����  �����ⲿ����
  */
+/*
+ * Poll the RX buffer for either keyword instead of unconditionally burning the
+ * whole waittime. The ISR keeps Data_RX_BUF NUL-terminated after every byte, so
+ * matching can start the moment new data lands and waittime turns into a
+ * ceiling rather than a fixed cost: a normal "OK" used to cost 500..5000 ms,
+ * now it costs a few ms.
+ * Only FramLength is read here - nothing in this loop writes to the shared
+ * bitfield word, so it cannot corrupt what the ISR is doing.
+ */
+static void ESP8266_AT_Poll ( const char * reply1, const char * reply2, uint32_t waittime,
+                              bool * hit1, bool * hit2 )
+{
+    uint32_t start    = HAL_GetTick();
+    uint16_t seen_len = 0xFFFF;      /* force one match attempt on entry */
+
+    *hit1 = false;
+    *hit2 = false;
+
+    do
+    {
+        uint16_t len = strEsp8266_Fram_Record .InfBit .FramLength;
+
+        if ( len != seen_len )
+        {
+            seen_len = len;
+
+            *hit1 = ( reply1 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply1 ) != NULL ) : false;
+            *hit2 = ( reply2 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply2 ) != NULL ) : false;
+
+            if ( *hit1 || *hit2 )
+            {
+                HAL_Delay ( macESP8266_AT_SETTLE_MS );
+                break;
+            }
+        }
+
+        IWDG_Feed();
+    }
+    while ( ( HAL_GetTick() - start ) < waittime );
+}
+
+/*
+ * Wait for a keyword that a command already in progress is going to produce,
+ * without sending anything and without clearing what has arrived so far.
+ * Needed by the two-step AT+MQTTPUBRAW handshake, where the payload is written
+ * between the "> " prompt and the final "+MQTTPUB:OK".
+ * reply1 = the keyword we want, reply2 = optional failure keyword that ends the
+ * wait early. Returns true only when reply1 was seen.
+ */
+bool ESP8266_AT_WaitFor ( const char * reply1, const char * reply2, uint32_t waittime )
+{
+    bool hit1;
+    bool hit2;
+
+    s_at_cmd_in_flight = 1;
+    ESP8266_AT_Poll ( reply1, reply2, waittime, &hit1, &hit2 );
+    s_at_cmd_in_flight = 0;
+
+    return hit1;
+}
+
+/*
+ * Push raw bytes at USART3 with no formatting and no CR/LF terminator: the
+ * AT+MQTTPUBRAW payload is length-delimited, so a single extra byte would be
+ * published as part of the message (or shift the whole frame).
+ * Writes DR directly for the same reason USART_printf() does - HAL_UART_Transmit
+ * takes a lock the USART3 ISR must never wait on.
+ */
+void ESP8266_SendRaw ( const char * data, uint16_t len )
+{
+    uint16_t i;
+
+    for ( i = 0; i < len; i++ )
+    {
+        while ( ( macESP8266_USARTx->SR & USART_SR_TXE ) == 0 )
+        {
+        }
+        macESP8266_USARTx->DR = ( uint8_t ) data [ i ];
+    }
+
+    while ( ( macESP8266_USARTx->SR & USART_SR_TC ) == 0 )
+    {
+    }
+}
+
 bool ESP8266_Cmd ( char * cmd, char * reply1, char * reply2, uint32_t waittime )
 {    
     bool hit1 = false;
     bool hit2 = false;
-    uint32_t start;
-    uint16_t seen_len = 0;
 
     /* Drop whatever the module said before this command, then send. */
     ESP8266_ATFrame_Reset();
@@ -208,37 +300,7 @@ bool ESP8266_Cmd ( char * cmd, char * reply1, char * reply2, uint32_t waittime )
         return true;
     }
     
-    /*
-     * Poll for the expected keyword instead of unconditionally burning the
-     * whole waittime. The ISR keeps Data_RX_BUF NUL-terminated after every
-     * byte, so matching can start the moment new data lands and waittime
-     * turns into a ceiling rather than a fixed cost: a normal "OK" used to
-     * cost 500..5000 ms, now it costs a few ms.
-     * Only FramLength is read here - nothing in this loop writes to the
-     * shared bitfield word, so it cannot corrupt what the ISR is doing.
-     */
-    start = HAL_GetTick();
-    do
-    {
-        uint16_t len = strEsp8266_Fram_Record .InfBit .FramLength;
-
-        if ( len != seen_len )
-        {
-            seen_len = len;
-
-            hit1 = ( reply1 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply1 ) != NULL ) : false;
-            hit2 = ( reply2 != 0 ) ? ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, reply2 ) != NULL ) : false;
-
-            if ( hit1 || hit2 )
-            {
-                HAL_Delay ( macESP8266_AT_SETTLE_MS );
-                break;
-            }
-        }
-
-        IWDG_Feed();
-    }
-    while ( ( HAL_GetTick() - start ) < waittime );
+    ESP8266_AT_Poll ( reply1, reply2, waittime, &hit1, &hit2 );
     
     s_at_cmd_in_flight = 0;
     

@@ -219,23 +219,6 @@ void DEBUG_USART_IRQHandler(void)
 }
 
 /**
-  * @brief  Last occurrence of needle in hay (strstr only finds the first one).
-  */
-static const char * last_occurrence ( const char * hay, const char * needle )
-{
-    const char * hit  = NULL;
-    const char * scan = strstr ( hay, needle );
-
-    while ( scan != NULL )
-    {
-        hit  = scan;
-        scan = strstr ( scan + 1, needle );
-    }
-
-    return hit;
-}
-
-/**
   * @brief  This function handles macESP8266_USARTx Handler.
   * @param  None
   * @retval None
@@ -293,28 +276,16 @@ void macESP8266_USART_INT_FUN ( void )
         ucTcpClosedFlag = strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "CLOSED\r\n" ) ? 1 : 0;
         if(mqtt_flag ==1 )//mqtt��������
         {
-            /* Scan from the LAST +MQTTSUBRECV in the buffer, not the first.
-             * The board subscribes to the very topic it publishes replies on,
-             * so an echo of our own reply is regularly still sitting in the
-             * buffer. Parsing from the first URC would read "type":"reply" and
-             * silently drop the real command that arrived behind it. */
-            const char * urc = last_occurrence ( strEsp8266_Fram_Record.Data_RX_BUF, "+MQTTSUBRECV" );
-
-            if (!g_mqtt_rx_pending && ( urc != NULL ) &&
-                strstr(urc, "\"type\":\"command\"") &&
-                strstr(urc, "\"name\":\"onoff\""))
-            {
-                uint16_t offset   = (uint16_t)( urc - strEsp8266_Fram_Record.Data_RX_BUF );
-                uint16_t copy_len = strEsp8266_Fram_Record.InfBit.FramLength - offset;
-                if (copy_len >= RX_BUF_MAX_LEN)
-                {
-                    copy_len = RX_BUF_MAX_LEN - 1;
-                }
-                memcpy(g_mqtt_rx_frame, urc, copy_len);
-                g_mqtt_rx_frame[copy_len] = '\0';
-                g_mqtt_rx_len = copy_len;
-                g_mqtt_rx_pending = 1;
-            }
+            /* Slice every complete +MQTTSUBRECV out of the buffer and
+             * queue it. The queue is what decouples capture from
+             * processing: dispatching a command publishes an ACK, which
+             * costs an AT round trip, and anything that arrived during
+             * that window used to be dropped - or worse, latched the
+             * downlink dead. Frame boundaries come from the URC's own
+             * length field, so a payload carrying braces or commas no
+             * longer confuses the split, and several commands sitting in
+             * one IDLE frame are all recovered instead of just the last. */
+            MQTT_RxQueue_Harvest();
         }
         /* Nobody is waiting for this data and the buffer is nearly full: drop
            it now. Otherwise a burst of unsolicited URCs between two commands
@@ -323,9 +294,7 @@ void macESP8266_USART_INT_FUN ( void )
         if ( !ESP8266_AT_CmdInFlight() &&
              ( strEsp8266_Fram_Record .InfBit .FramLength >= ESP8266_RX_HIGH_WATER ) )
         {
-            strEsp8266_Fram_Record .InfBit .FramLength     = 0;
-            strEsp8266_Fram_Record .InfBit .FramFinishFlag = 0;
-            strEsp8266_Fram_Record .Data_RX_BUF [ 0 ]      = '\0';
+            ESP8266_ATFrame_Reset();
         }
     }	
 

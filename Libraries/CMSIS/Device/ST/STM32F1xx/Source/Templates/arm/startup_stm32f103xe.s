@@ -29,7 +29,11 @@
 ;   <o> Stack Size (in Bytes) <0x0-0xFFFFFFFF:8>
 ; </h>
 
-Stack_Size      EQU     0x00000400
+; 1 KB was already being overrun: the MQTT publish path used to put a 512-byte
+; command buffer, a 256-byte payload and a 512-byte escape buffer on the stack
+; at once, and printf plus two UART ISRs nest on top of that. The buffers are
+; static now; this leaves real headroom instead of relying on luck.
+Stack_Size      EQU     0x00000800
 
                 AREA    STACK, NOINIT, READWRITE, ALIGN=3
 Stack_Mem       SPACE   Stack_Size

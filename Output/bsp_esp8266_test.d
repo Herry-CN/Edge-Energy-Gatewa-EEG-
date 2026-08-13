@@ -65,3 +65,4 @@
 ..\output\bsp_esp8266_test.o: ..\User\./usart/bsp_debug_usart.h
 ..\output\bsp_esp8266_test.o: ..\User\./ESP8266/bsp_esp8266_mqtt.h
 ..\output\bsp_esp8266_test.o: ..\User\./dwt_delay/core_delay.h
+..\output\bsp_esp8266_test.o: ..\User\./ESP8266/bsp_eeg_proto.h
