@@ -25,9 +25,18 @@ uint32_t g_current_voltage = 2200;/* V  × 10    → 默认 220.0V */
 uint32_t g_current_current = 0;   /* A  × 100   → 默认 0 (idle) */
 uint8_t  g_onoff_state     = ONOFF_IDLE; /* 默认待机 (value=1) */
 volatile uint8_t g_mqtt_rx_pending = 0;
+volatile uint16_t g_mqtt_rx_len = 0;
+char g_mqtt_rx_frame[RX_BUF_MAX_LEN] = {0};
 
 /* 每个下发 command 带 id 字段时原样回传（没有就用计数）*/
 static uint32_t s_reply_seq = 0;
+static char     s_reply_id[32] = {0};
+
+static const char* mqtt_rx_source_buf(void)
+{
+    return (g_mqtt_rx_len > 0) ? g_mqtt_rx_frame
+                               : (const char*)strEsp8266_Fram_Record.Data_RX_BUF;
+}
 
 static bool mqtt_link_is_online(void)
 {
@@ -76,6 +85,42 @@ static bool json_get_str(const char* buf, const char* field, char* out, int outs
     for (i = 0; i < outsz - 1 && p + i < q; i++) out[i] = p[i];
     out[i] = 0;
     return true;
+}
+
+/* 读取 JSON 字段原始文本，支持：
+ *   "id":"abc"
+ *   "id":1001
+ * 返回值统一写入 out，便于 reply 原样带回。 */
+static bool json_get_text(const char* buf, const char* field, char* out, int outsz)
+{
+    char key[64];
+    const char* p;
+    const char* q;
+    int i = 0;
+
+    if (!buf || !field || !out || outsz <= 1) return false;
+    snprintf(key, sizeof(key), "\"%s\"", field);
+    p = strstr(buf, key);
+    if (!p) return false;
+    p += strlen(key);
+    while (*p && (*p == ' ' || *p == ':' || *p == '\t')) p++;
+
+    if (*p == '"') {
+        p++;
+        q = p;
+        while (*q && *q != '"') q++;
+    } else {
+        q = p;
+        while (*q && *q != ',' && *q != '}' && *q != ' ' && *q != '\r' && *q != '\n' && *q != '\t') q++;
+    }
+
+    if (q <= p) return false;
+    while (i < outsz - 1 && p + i < q) {
+        out[i] = p[i];
+        i++;
+    }
+    out[i] = 0;
+    return i > 0;
 }
 
 /* ============================================================
@@ -340,7 +385,9 @@ bool ESP8266_MQTT_PUB_REPLY(int value, const char* result)
     char idbuf[32] = {0};
 
     /* 当前命令 id（这里是全局：RECV 解析命中时若带 id 就填进来，没有则空，序列化成 seq）*/
-    if (idbuf[0] == 0) {
+    if (s_reply_id[0] != 0) {
+        snprintf(idbuf, sizeof(idbuf), "%s", s_reply_id);
+    } else {
         s_reply_seq++;
         snprintf(idbuf, sizeof(idbuf), "%lu", (unsigned long)s_reply_seq);
     }
@@ -364,9 +411,11 @@ bool ESP8266_MQTT_PUB_REPLY(int value, const char* result)
             MQTT_PUBLISH_TOPIC_REPLY, esc, MQTT_DEFAULT_QOS);
     }
     if (!ESP8266_Cmd(cStr, "OK", 0, 1500)) {
+        s_reply_id[0] = 0;
         printf("[MQTT REPLY] FAILED payload: %s\r\n", payload);
         return false;
     }
+    s_reply_id[0] = 0;
     printf("[MQTT REPLY] OK payload: %s\r\n", payload);
     return true;
 }
@@ -385,8 +434,10 @@ bool ESP8266_MQTT_PUB_REPLY(int value, const char* result)
  * ============================================================ */
 bool ESP8266_MQTT_RECV(void)
 {
+    const char* rx_buf = mqtt_rx_source_buf();
     char type[32]  = {0};
     char name[32]  = {0};
+    char cmd_id[32] = {0};
     int  val = -1;
 
     if (ucTcpClosedFlag) {
@@ -397,17 +448,17 @@ bool ESP8266_MQTT_RECV(void)
     }
 
     /* 1. Must contain "command" + "onoff" keywords to even be parsed (fast filter) */
-    if (!strstr((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "\"command\"") ||
-        !strstr((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "\"onoff\""))
+    if (!strstr(rx_buf, "\"command\"") ||
+        !strstr(rx_buf, "\"onoff\""))
     {
         /* Not a valid onoff command — SILENTLY DROP (no echo back) */
         return false;
     }
 
     /* 2. Parse 3 required fields per §6 */
-    if (!json_get_str((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "type", type, sizeof(type)) ||
-        !json_get_str((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "name", name, sizeof(name)) ||
-        !json_get_int((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "value", &val))
+    if (!json_get_str(rx_buf, "type", type, sizeof(type)) ||
+        !json_get_str(rx_buf, "name", name, sizeof(name)) ||
+        !json_get_int(rx_buf, "value", &val))
     {
         printf("\r\n[MQTT RECV] missing fields / bad format - silently dropped.\r\n");
         return false;
@@ -415,6 +466,11 @@ bool ESP8266_MQTT_RECV(void)
     if (strcmp(type, "command") != 0 || strcmp(name, "onoff") != 0) {
         printf("\r\n[MQTT RECV] type/name != command/onoff - silently dropped.\r\n");
         return false;
+    }
+    if (json_get_text(rx_buf, "id", cmd_id, sizeof(cmd_id))) {
+        snprintf(s_reply_id, sizeof(s_reply_id), "%s", cmd_id);
+    } else {
+        s_reply_id[0] = 0;
     }
     if (val != 0 && val != 2) {
         /* §6: only value 0/2 are valid. Other values reply fail (not unsupported) */

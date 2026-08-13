@@ -19,6 +19,8 @@ extern uint32_t g_current_voltage;   /* voltage_v × 10  (0.1V  单位) */
 extern uint32_t g_current_current;   /* current_a × 100 (0.01A 单位) */
 extern uint8_t  g_onoff_state;       /* ONOFF_CHARGING / ONOFF_IDLE / ONOFF_OFFLINE */
 extern volatile uint8_t g_mqtt_rx_pending; /* USART3 IDLE ISR marks pending MQTT downlink frame */
+extern volatile uint16_t g_mqtt_rx_len;    /* cached MQTT downlink frame length */
+extern char g_mqtt_rx_frame[RX_BUF_MAX_LEN]; /* dedicated buffer for unsolicited +MQTTSUBRECV */
 
 extern uint8_t mqtt_flag;//mqtt连接标志
 

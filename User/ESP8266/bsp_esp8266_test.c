@@ -283,9 +283,12 @@ void ESP8266_SendDHT11DataTest(void)
     /* (1) Process MQTT downlink in main loop first, never inside USART3 ISR.
      * Evidence showed the old ISR->MQTT_RECV->PUB_REPLY path could block after
      * the first control command. */
-    if (mqtt_flag && g_mqtt_rx_pending && strEsp8266_Fram_Record.InfBit.FramFinishFlag) {
+    if (mqtt_flag && g_mqtt_rx_pending && g_mqtt_rx_len > 0) {
         g_mqtt_rx_pending = 0;
         ESP8266_MQTT_RECV();
+        g_mqtt_rx_len = 0;
+        g_mqtt_rx_frame[0] = '\0';
+        g_mqtt_rx_pending = 0;
         strEsp8266_Fram_Record.InfBit.FramFinishFlag = 0;
         strEsp8266_Fram_Record.InfBit.FramLength = 0;
         strEsp8266_Fram_Record.Data_RX_BUF[0] = '\0';

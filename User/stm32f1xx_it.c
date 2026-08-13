@@ -43,6 +43,7 @@
 #include "./ESP8266/bsp_esp8266_test.h"
 #include "./ESP8266/bsp_esp8266.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
+#include <string.h>
 
 
 uint16_t publish_task_time=0;//���������ʱ����ֵ
@@ -214,11 +215,26 @@ void macESP8266_USART_INT_FUN ( void )
     if ( __HAL_USART_GET_FLAG( &Uart3Handle, USART_FLAG_IDLE ) == SET )                                         //����֡�������
     {
         strEsp8266_Fram_Record .InfBit .FramFinishFlag = 1;
+        strEsp8266_Fram_Record .Data_RX_BUF [ strEsp8266_Fram_Record .InfBit .FramLength ] = '\0';
 
         ucTcpClosedFlag = strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "CLOSED\r\n" ) ? 1 : 0;
         if(mqtt_flag ==1 )//mqtt��������
         {
-            g_mqtt_rx_pending = 1;
+            if (!g_mqtt_rx_pending &&
+                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "+MQTTSUBRECV") &&
+                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "\"type\":\"command\"") &&
+                strstr(strEsp8266_Fram_Record.Data_RX_BUF, "\"name\":\"onoff\""))
+            {
+                uint16_t copy_len = strEsp8266_Fram_Record.InfBit.FramLength;
+                if (copy_len >= RX_BUF_MAX_LEN)
+                {
+                    copy_len = RX_BUF_MAX_LEN - 1;
+                }
+                memcpy(g_mqtt_rx_frame, strEsp8266_Fram_Record.Data_RX_BUF, copy_len);
+                g_mqtt_rx_frame[copy_len] = '\0';
+                g_mqtt_rx_len = copy_len;
+                g_mqtt_rx_pending = 1;
+            }
         }
         __HAL_UART_CLEAR_IDLEFLAG(&Uart3Handle);
     }	
