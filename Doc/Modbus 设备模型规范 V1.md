@@ -16,7 +16,8 @@ Charger
  ├── soc
  ├── temperature
  ├── mode
- └── enable
+ ├── enable
+ └── start_stop
 ```
 
 | 模型字段        | 寄存器 |

@@ -888,6 +888,26 @@
               <FilePath>..\User\ESP8266\bsp_eeg_proto.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_rs485.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\rs485\bsp_rs485.c</FilePath>
+            </File>
+            <File>
+              <FileName>modbus_crc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\modbus\modbus_crc.c</FilePath>
+            </File>
+            <File>
+              <FileName>modbus_master.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\modbus\modbus_master.c</FilePath>
+            </File>
+            <File>
+              <FileName>charger.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\devices\charger.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_esp8266_mqtt.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\User\ESP8266\bsp_esp8266_mqtt.c</FilePath>

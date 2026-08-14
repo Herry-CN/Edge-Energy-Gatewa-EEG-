@@ -23,6 +23,7 @@
 #include "./usart/bsp_debug_usart.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./ESP8266/bsp_eeg_proto.h"
+#include "./devices/charger.h"
 
 /* ================ 对外/导入全局变量 ================ */
 DHT11_Data_TypeDef DHT11_Data;
@@ -327,27 +328,31 @@ void ESP8266_SendDHT11DataTest(void)
     EEG_TimeTask();
 #endif
 
+    /* Modbus 主站轮询：刷新 g_* 缓存，MQTT 发布格式一行不动 */
+    charger_poll();
+
     /* (2) SysTick publish_flag == 1 only every 5s AND mqtt online */
     if (!(publish_flag && mqtt_flag)) return;
     publish_flag = 0;
 
-    /* ① DHT11 sample (if fails, keep last cached meter values, NEVER halt reports) */
+    /* ① DHT11：Modbus 在线时只打日志，温度改用寄存器 1039 */
     if (DHT11_Read_TempAndHumidity(&DHT11_Data) == SUCCESS) {
-        /* Production version: replace DHT11 with real meter IC reads here.
-         *   idle (onoff=1): power=current=0, voltage=2200 nominal
-         *   charging (onoff=0): use metering IC values (× multiplier) */
-        printf("\r\n[DHT11] Humi=%d.%d %%RH  Temp=%d.%d C | onoff_state=%u\r\n",
+        printf("\r\n[DHT11] Humi=%d.%d %%RH  Temp=%d.%d C | onoff_state=%u mb=%u\r\n",
                DHT11_Data.humi_int, DHT11_Data.humi_deci,
                DHT11_Data.temp_int, DHT11_Data.temp_deci,
-               (unsigned)g_onoff_state);
-        /* §6 temperature 字段暂时用板载 DHT11 顶着，等 Modbus 桩体温度接进来再换 */
-        g_temperature = (int16_t)DHT11_Data.temp_int;
-    } else {
+               (unsigned)g_onoff_state,
+               charger_is_online() ? 1u : 0u);
+        if (!charger_is_online()) {
+            g_temperature = (int16_t)DHT11_Data.temp_int;
+        }
+    } else if (!charger_is_online()) {
         printf("\r\n[WARN] DHT11 sample FAILED. Use last cached meter values for report.\r\n");
     }
 
     /* ② PUBLISH：迁移期 EEG 与旧私有协议双发，任一条失败都计入失败计数 */
-    EEG_UpdateDerived();
+    if (!charger_is_online()) {
+        EEG_UpdateDerived();
+    }
     {
         bool pub_ok = true;
 #if EEG_PROTO_ENABLE

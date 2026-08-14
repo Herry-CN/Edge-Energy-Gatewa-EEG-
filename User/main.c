@@ -28,6 +28,7 @@
 #include "./systick/bsp_SysTick.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./wdg/bsp_iwdg.h"
+#include "./devices/charger.h"
 
 
 uint8_t publish_flag =0;//���������־
@@ -45,8 +46,8 @@ int main(void)
     SystemClock_Config();
     /* USART1 @ 115200 8-N-1 for debug printf */
     DEBUG_USART_Config();
-    printf("\r\n--- Charging Pile MQTT Demo (STM32F103ZE + ESP8266 MQTT-AT 1MB) ---\r\n"
-             "Edit ESP8266/bsp_esp8266_test.h to change: WiFi SSID, device ID, MQTT broker.\r\n");
+    printf("\r\n--- EEG gateway (STM32F103ZE + ESP8266 MQTT + Modbus-RTU master) ---\r\n"
+             "MQTT: edit ESP8266/bsp_esp8266_test.h   RS485: USART2 9600 PA2/PA3 DE=PC2+PD11\r\n");
     /* Arm the watchdog before the (blocking) startup chain, and report why the
      * board came up. An "IWDG WATCHDOG TIMEOUT" line in the serial log is the
      * quickest way to tell a real lock-up from a power glitch. */
@@ -56,6 +57,8 @@ int main(void)
     LED_GPIO_Config();
     /* DHT11 temp/humidity sensor init */
     DHT11_Init();
+    /* USART2 RS485 + Modbus-RTU master probe (before WiFi, so COM7 联调可见) */
+    charger_init();
     /* ESP8266 USART3 + CH_PD/RST GPIOs init */
     ESP8266_Init();
     /* Full startup chain (AT -> WiFi -> MQTT USERCFG/CONN/SUB). Blocks until OK. */

@@ -17,6 +17,7 @@
 #include "./ESP8266/bsp_esp8266_test.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./ESP8266/bsp_esp8266.h"
+#include "./devices/charger.h"
 #include "./led/bsp_led.h"
 #include <stdio.h>
 #include <string.h>
@@ -212,6 +213,7 @@ static void fmt_id(const char* id_raw, char* out, int outsz)
     else         snprintf(out, outsz, "\"%s\"", id_raw);
 }
 
+#if !MB_MASTER_ENABLE
 /* 充电时按 P = U × I 反推电流，免得三个数互相打架 */
 static void apply_sim_power(void)
 {
@@ -221,6 +223,7 @@ static void apply_sim_power(void)
                       ? (s_target_power_x10 * 100000UL / g_current_voltage)
                       : 0;
 }
+#endif
 
 /* ================== §5 网关状态 ================== */
 
@@ -368,33 +371,54 @@ bool EEG_HandleCommand(const char* json)
         return false;
     }
 
-    /* start：启停对应寄存器 1050，接上 Modbus 后在这里写寄存器 */
+    /* start：写保持寄存器 1050。MQTT 组包/ACK 路径不变。 */
     if (strcmp(action, "start") == 0) {
-        g_onoff_state = ONOFF_CHARGING;
+#if MB_MASTER_ENABLE
+        if (!charger_cmd_start()) {
+            printf("\r\n[EEG CMD] start FAILED (modbus write 1050)\r\n");
+            return EEG_PublishAck(id_raw, false, 3, "modbus write failed");
+        }
+#else
         apply_sim_power();
+        g_onoff_state = ONOFF_CHARGING;
         LED2_ON;
+#endif
         printf("\r\n[EEG CMD] start -> charging (LED2 ON)\r\n");
         return EEG_PublishAck(id_raw, true, 0, "started");
     }
 
     if (strcmp(action, "stop") == 0) {
+#if MB_MASTER_ENABLE
+        if (!charger_cmd_stop()) {
+            printf("\r\n[EEG CMD] stop FAILED (modbus write 1050)\r\n");
+            return EEG_PublishAck(id_raw, false, 3, "modbus write failed");
+        }
+#else
         g_onoff_state     = ONOFF_IDLE;
         g_current_power   = 0;
         g_current_current = 0;
         g_current_voltage = 2200;
         LED2_OFF;
+#endif
         printf("\r\n[EEG CMD] stop -> idle (LED2 OFF)\r\n");
         return EEG_PublishAck(id_raw, true, 0, "stopped");
     }
 
-    /* set_charge_power：value 单位 kW，对应寄存器 1024（充电输出功率） */
+    /* set_charge_power：value 单位 kW，写寄存器 1024（0.1kW） */
     if (strcmp(action, "set_charge_power") == 0) {
         if (!MQTT_JsonGetInt(json, "value", &value) || value < 0 || value > 250) {
             printf("\r\n[EEG CMD] set_charge_power value invalid\r\n");
             return EEG_PublishAck(id_raw, false, 2, "invalid value");
         }
         s_target_power_x10 = (uint32_t)value * 10U;
+#if MB_MASTER_ENABLE
+        if (!charger_cmd_set_power((uint16_t)s_target_power_x10)) {
+            printf("\r\n[EEG CMD] set_charge_power FAILED (modbus write 1024)\r\n");
+            return EEG_PublishAck(id_raw, false, 3, "modbus write failed");
+        }
+#else
         if (g_onoff_state == ONOFF_CHARGING) apply_sim_power();
+#endif
         printf("\r\n[EEG CMD] set_charge_power = %d kW\r\n", value);
         return EEG_PublishAck(id_raw, true, 0, "power set");
     }
