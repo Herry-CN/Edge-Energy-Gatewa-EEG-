@@ -67,6 +67,7 @@
 #define      EEG_TOPIC_DEV_CMD                            EEG_TOPIC_DEV "/cmd"                                  /* §7 */
 #define      EEG_TOPIC_DEV_ACK                            EEG_TOPIC_DEV "/ack"                                  /* §8 */
 #define      EEG_TOPIC_DEV_EVENT                          EEG_TOPIC_DEV "/event"                                /* §9 */
+#define      EEG_TOPIC_DEV_REGISTERS                      EEG_TOPIC_DEV "/registers"                            /* §7.4 */
 
 /* §4 Retain：网关状态 / 设备状态 = true，命令 / ACK / 事件 = false */
 #define      EEG_RETAIN_STATUS                            1

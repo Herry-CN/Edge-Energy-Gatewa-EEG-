@@ -57,28 +57,33 @@ def get_u32(reg):
 
 
 def seed_idle():
-    put(1001, 0)          # state idle
+    put(1001, 0)          # pile normal
     put(1002, 0)          # fault
+    put(1009, 230)        # 23.0 V input (mbserver 401010)
+    put(1010, 32)         # 0.32 A
+    put(1011, 7)          # 0.7 kW
     put(1023, 0)          # enable
-    put(1024, 65)         # target 6.5 kW
-    put(1028, 2200)       # 220.0 V
+    put(1024, 100)        # target 10.0 kW
+    put(1028, 0)          # output V
     put(1029, 0)
     put(1030, 0)
-    put(1031, 20)         # soc
+    put(1031, 0)          # soc
+    put(1034, 1)          # standby
     put_u32(1035, 0)
     put_u32(1037, 0)
-    put(1039, 35)
-    put(1049, 0)          # auto
+    put(1039, 0)          # raw 0 → MQTT -40 °C
+    put(1049, 0)          # chg
     put(1050, 0)
 
 
 def apply_start():
-    p = get(1024) or 65
+    p = get(1024) or 100
     u = 3801
     i = (p * 100000 // u) if u else 0
     put(1050, 1)
     put(1023, 1)
-    put(1001, 1)
+    put(1001, 0)          # pile remains normal
+    put(1034, 0)          # 启机
     put(1028, u)
     put(1029, i)
     put(1030, p)
@@ -89,10 +94,11 @@ def apply_stop():
     put(1050, 0)
     put(1023, 0)
     put(1001, 0)
-    put(1028, 2200)
+    put(1034, 1)          # 待机
+    put(1028, 0)
     put(1029, 0)
     put(1030, 0)
-    print("  -> STOP   idle 220.0V")
+    print("  -> STOP   idle")
 
 
 def on_write(reg, val):
@@ -102,12 +108,12 @@ def on_write(reg, val):
             apply_start()
         else:
             apply_stop()
-    elif reg == 1024 and get(1001) == 1:
+    elif reg == 1024 and get(1050) == 1:
         apply_start()
 
 
 def tick_charge(dt):
-    if get(1001) != 1:
+    if get(1050) != 1:
         return
     p = get(1030)
     if p > 0:
@@ -197,7 +203,7 @@ def main():
             dt = now - last_tick
             last_tick = now
             tick_charge(dt)
-            if get(1001) == 1:
+            if get(1050) == 1:
                 soc_acc += dt
                 if soc_acc >= 6.0 and get(1031) < 100:
                     put(1031, get(1031) + 1)

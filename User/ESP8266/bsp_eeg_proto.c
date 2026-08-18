@@ -24,10 +24,22 @@
 #include <stdlib.h>
 
 /* ================== 设备对象模型缓存 ================== */
-uint32_t g_energy_charge = 0;
-uint8_t  g_soc           = 0;
-int16_t  g_temperature   = 25;
-uint16_t g_fault_code    = 0;
+uint32_t g_energy_charge       = 0;
+uint32_t g_energy_discharge    = 0;
+uint8_t  g_soc                 = 0;
+int16_t  g_temperature         = 25;
+uint16_t g_fault_code          = 0;
+uint16_t g_charger_state       = 0;
+uint16_t g_enable_word         = 0;
+uint16_t g_start_stop_state    = 0;
+uint16_t g_start_stop_control  = 0;
+uint16_t g_work_mode           = 0;
+uint16_t g_capability_word     = 0;
+uint16_t g_module_count        = 0;
+uint32_t g_input_voltage       = 0;
+uint32_t g_input_current       = 0;
+uint32_t g_input_power         = 0;
+uint32_t g_charge_power_x10    = 0;
 
 /* 目标充电功率（0.1kW），§7 set_charge_power 写这里；接 Modbus 后要同时写
  * 寄存器 1024（充电输出功率），启停写寄存器 1050。 */
@@ -35,7 +47,7 @@ static uint32_t s_target_power_x10 = 65;    /* 默认 6.5kW */
 
 /* 所有报文共用一块拼装缓冲：发布调用都在主循环里串行发生，不会重入。
  * 放 static 是因为工程栈很小（startup 里 Stack_Size），大数组不能上栈。 */
-static char s_pl[320];
+static char s_pl[768];
 
 /* ================== 时间 ================== */
 static uint32_t s_epoch_at_sync = 0;
@@ -184,15 +196,19 @@ static void fmt_scaled(char* out, int outsz, uint32_t scaled, int dec)
     }
 }
 
-/* §6 state 枚举：故障优先，其次看启停状态 */
+/* MQTT state / state_code 只映射 1001 桩状态，禁止写成 charging/idle */
 static const char* state_str(void)
 {
-    if (g_fault_code != 0) return "fault";
-    switch (g_onoff_state) {
-        case ONOFF_CHARGING: return "charging";
-        case ONOFF_OFFLINE:  return "offline";
-        default:             return "idle";
-    }
+    if (g_charger_state == CHG_PILE_FAULT) return "fault";
+    if (g_charger_state == CHG_PILE_ALARM) return "alarm";
+    return "normal";
+}
+
+static const char* mode_str(void)
+{
+    if (g_work_mode == 1u) return "v2g";
+    if (g_work_mode == 0u) return "chg";
+    return "unknown";   /* 点表仅 0/1，测试值 31 不得谎报 chg */
 }
 
 /* §8 的 id 要原样回传：命令里是数字就不加引号，是字符串就补引号 */
@@ -293,19 +309,96 @@ bool EEG_PublishGatewayStatus(void)
 bool EEG_PublishDeviceStatus(void)
 {
     char v[16], a[16], p[16], e[16];
+    char iv[16], ia[16], ip[16], sp[16], ed[16];
+    uint16_t raw_v, raw_a, raw_p, raw_soc, raw_t;
+    uint16_t raw_en, raw_ss, raw_ctrl, raw_mode, raw_ec, raw_ed;
+    uint16_t raw_iv, raw_ia, raw_ip, raw_sp, raw_cap, raw_mod, raw_st, raw_fault;
 
-    fmt_scaled(v, sizeof(v), g_current_voltage, 1);   /* 0.1V  -> 221.0 */
-    fmt_scaled(a, sizeof(a), g_current_current, 2);   /* 0.01A -> 29.41 */
-    fmt_scaled(p, sizeof(p), g_current_power,   1);   /* 0.1kW -> 6.5   */
-    fmt_scaled(e, sizeof(e), g_energy_charge,   2);   /* 0.01kWh -> 12.35 */
+#if MB_MASTER_ENABLE
+    /* 发布瞬间直接取点表缓存，避免 g_* 被其它路径改掉 */
+    raw_st    = charger_reg(CHG_REG_STATE);
+    raw_fault = charger_reg(CHG_REG_FAULT);
+    raw_cap   = charger_reg(CHG_REG_CAPABILITY);
+    raw_mod   = charger_reg(CHG_REG_MODULE_COUNT);
+    raw_en    = charger_reg(CHG_REG_ENABLE);
+    raw_v     = charger_reg(CHG_REG_VOLTAGE);
+    raw_a     = charger_reg(CHG_REG_CURRENT);
+    raw_p     = charger_reg(CHG_REG_POWER);
+    raw_iv    = charger_reg(CHG_REG_INPUT_VOLTAGE);
+    raw_ia    = charger_reg(CHG_REG_INPUT_CURRENT);
+    raw_ip    = charger_reg(CHG_REG_INPUT_POWER);
+    raw_sp    = charger_reg(CHG_REG_CHARGE_POWER);
+    raw_ec    = charger_reg(CHG_REG_ENERGY_CHARGE);
+    raw_ed    = charger_reg(CHG_REG_ENERGY_DISCHARGE);
+    raw_soc   = charger_reg(CHG_REG_SOC);
+    raw_t     = charger_reg(CHG_REG_TEMPERATURE);
+    raw_mode  = charger_reg(CHG_REG_MODE);
+    raw_ss    = charger_reg(CHG_REG_START_STOP_STATE);
+    raw_ctrl  = charger_reg(CHG_REG_START_STOP);
+    g_charger_state      = raw_st;
+    g_fault_code         = raw_fault;
+    g_capability_word    = raw_cap;
+    g_module_count       = raw_mod;
+    g_enable_word        = raw_en;
+    g_current_voltage    = raw_v;
+    g_current_current    = raw_a;
+    g_current_power      = raw_p;
+    g_work_mode          = raw_mode;
+    g_start_stop_state   = raw_ss;
+    g_start_stop_control = raw_ctrl;
+    g_soc                = (raw_soc > 100u) ? 100u : (uint8_t)raw_soc;
+    g_energy_charge      = raw_ec;
+    g_energy_discharge   = raw_ed;
+    g_temperature        = (int16_t)raw_t - (int16_t)CHG_TEMP_OFFSET;
+#else
+    raw_st    = g_charger_state;
+    raw_fault = g_fault_code;
+    raw_cap   = g_capability_word;
+    raw_mod   = g_module_count;
+    raw_en    = g_enable_word;
+    raw_v     = (uint16_t)g_current_voltage;
+    raw_a     = (uint16_t)g_current_current;
+    raw_p     = (uint16_t)g_current_power;
+    raw_iv    = (uint16_t)g_input_voltage;
+    raw_ia    = (uint16_t)g_input_current;
+    raw_ip    = (uint16_t)g_input_power;
+    raw_sp    = (uint16_t)g_charge_power_x10;
+    raw_ec    = (uint16_t)g_energy_charge;
+    raw_ed    = (uint16_t)g_energy_discharge;
+    raw_soc   = g_soc;
+    raw_t     = (uint16_t)(g_temperature + CHG_TEMP_OFFSET);
+    raw_mode  = g_work_mode;
+    raw_ss    = g_start_stop_state;
+    raw_ctrl  = g_start_stop_control;
+#endif
+
+    fmt_scaled(v,  sizeof(v),  raw_v,  1);
+    fmt_scaled(a,  sizeof(a),  raw_a,  2);
+    fmt_scaled(p,  sizeof(p),  raw_p,  1);
+    fmt_scaled(iv, sizeof(iv), raw_iv, 1);
+    fmt_scaled(ia, sizeof(ia), raw_ia, 2);
+    fmt_scaled(ip, sizeof(ip), raw_ip, 1);
+    fmt_scaled(sp, sizeof(sp), raw_sp, 1);
+    fmt_scaled(e,  sizeof(e),  raw_ec, 1);
+    fmt_scaled(ed, sizeof(ed), raw_ed, 2);
 
     snprintf(s_pl, sizeof(s_pl),
-        "{\"online\":true,\"state\":\"%s\",\"fault_code\":%u,"
-        "\"voltage\":%s,\"current\":%s,\"power\":%s,\"energy_charge\":%s,"
-        "\"soc\":%u,\"temperature\":%d,\"mode\":\"auto\",\"ts\":%lu}",
-        state_str(), (unsigned)g_fault_code,
-        v, a, p, e,
-        (unsigned)g_soc, (int)g_temperature,
+        "{\"online\":true,\"state\":\"%s\",\"state_code\":%u,\"fault_code\":%u,"
+        "\"capability_word\":%u,\"module_count\":%u,\"enable\":%u,"
+        "\"voltage\":%s,\"current\":%s,\"power\":%s,"
+        "\"input_voltage\":%s,\"input_current\":%s,\"input_power\":%s,"
+        "\"charge_power\":%s,\"energy_charge\":%s,\"energy_discharge\":%s,"
+        "\"soc\":%u,\"temperature\":%d,\"mode\":\"%s\",\"mode_code\":%u,"
+        "\"start_stop\":%u,\"start_stop_control\":%u,\"ts\":%lu}",
+        state_str(), (unsigned)raw_st, (unsigned)raw_fault,
+        (unsigned)raw_cap, (unsigned)raw_mod,
+        (unsigned)raw_en, v, a, p,
+        iv, ia, ip,
+        sp, e, ed,
+        (unsigned)((raw_soc > 100u) ? 100u : raw_soc),
+        (int)((int16_t)raw_t - (int16_t)CHG_TEMP_OFFSET),
+        mode_str(), (unsigned)raw_mode,
+        (unsigned)raw_ss, (unsigned)raw_ctrl,
         (unsigned long)EEG_Timestamp());
 
     if (!ESP8266_MQTT_Publish(EEG_TOPIC_DEV_STATUS, s_pl,
@@ -314,6 +407,40 @@ bool EEG_PublishDeviceStatus(void)
         return false;
     }
     printf("[EEG DEV] %s\r\n", s_pl);
+    return true;
+}
+
+bool EEG_PublishRegisters(void)
+{
+    static const uint16_t keys[] = {
+        1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011,
+        1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031,
+        1032, 1033, 1034, 1035, 1037, 1039, 1040, 1041, 1042, 1048, 1049, 1050
+    };
+    const int nkeys = (int)(sizeof(keys) / sizeof(keys[0]));
+    int i, n, pos;
+
+    pos = snprintf(s_pl, sizeof(s_pl),
+                   "{\"slave_addr\":1,\"ts\":%lu,\"registers\":{",
+                   (unsigned long)EEG_Timestamp());
+    if (pos < 0) return false;
+
+    for (i = 0; i < nkeys; i++) {
+        n = snprintf(s_pl + pos, sizeof(s_pl) - (unsigned)pos,
+                     "%s\"%u\":%u",
+                     (i == 0) ? "" : ",",
+                     (unsigned)keys[i], (unsigned)charger_reg(keys[i]));
+        if (n < 0 || (pos + n) >= (int)sizeof(s_pl) - 3) break;
+        pos += n;
+    }
+    snprintf(s_pl + pos, sizeof(s_pl) - (unsigned)pos, "}}");
+
+    if (!ESP8266_MQTT_Publish(EEG_TOPIC_DEV_REGISTERS, s_pl,
+                              MQTT_DEFAULT_QOS, EEG_RETAIN_TRANSIENT)) {
+        printf("[EEG REG] publish FAILED\r\n");
+        return false;
+    }
+    printf("[EEG REG] %s\r\n", s_pl);
     return true;
 }
 
@@ -404,6 +531,24 @@ bool EEG_HandleCommand(const char* json)
         return EEG_PublishAck(id_raw, true, 0, "stopped");
     }
 
+    /* write_register：仅点表 R/W（1021/1022/1023/1024/1025/1048/1049/1050） */
+    if (strcmp(action, "write_register") == 0) {
+        int reg = 0;
+        if (!MQTT_JsonGetInt(json, "register", &reg) ||
+            !MQTT_JsonGetInt(json, "value", &value) ||
+            value < 0 || value > 65535) {
+            return EEG_PublishAck(id_raw, false, 2, "invalid register/value");
+        }
+#if MB_MASTER_ENABLE
+        if (!charger_cmd_write((uint16_t)reg, (uint16_t)value)) {
+            return EEG_PublishAck(id_raw, false, 3, "write denied or modbus fail");
+        }
+#else
+        (void)reg;
+#endif
+        return EEG_PublishAck(id_raw, true, 0, "write success");
+    }
+
     /* set_charge_power：value 单位 kW，写寄存器 1024（0.1kW） */
     if (strcmp(action, "set_charge_power") == 0) {
         if (!MQTT_JsonGetInt(json, "value", &value) || value < 0 || value > 250) {
@@ -437,6 +582,11 @@ void EEG_UpdateDerived(void)
     uint32_t now = HAL_GetTick();
     uint32_t dt;
 
+#if MB_MASTER_ENABLE
+    /* 点表有真实电表/SOC 寄存器，禁止本地积分覆盖 1035/1031 */
+    (void)last_ms; (void)energy_rem; (void)soc_tick; (void)now; (void)dt;
+    return;
+#else
     if (last_ms == 0) { last_ms = now; return; }
     dt      = now - last_ms;
     last_ms = now;
@@ -457,6 +607,7 @@ void EEG_UpdateDerived(void)
         soc_tick = 0;
         if (g_soc < 100) g_soc++;
     }
+#endif
 }
 
 void EEG_CheckTempAlarm(void)

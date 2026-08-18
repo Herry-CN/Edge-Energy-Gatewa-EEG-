@@ -16,13 +16,24 @@
 #include "stm32f1xx.h"
 #include <stdbool.h>
 
-/* ── 设备对象模型缓存（Doc/Modbus 设备模型规范 V1.md 充电桩子集）──
- * 现在由 DHT11 + 模拟值填充；接上 Modbus 之后改由寄存器缓存刷新，
- * 报文层一行都不用动。电压/电流/功率仍沿用 g_current_* 那套整数倍率。 */
-extern uint32_t g_energy_charge;    /* 本次充电电量 kWh × 100 */
-extern uint8_t  g_soc;              /* 电池 SOC，% */
-extern int16_t  g_temperature;      /* 温度 ℃（当前取板载 DHT11） */
-extern uint16_t g_fault_code;       /* 0 = 无故障 */
+/* ── 设备对象模型缓存（由 charger_export_cache 从寄存器刷新）──
+ * 电压/电流/功率仍用整数倍率：0.1V / 0.01A / 0.1kW。 */
+extern uint32_t g_energy_charge;         /* 1035，kWh × 10  */
+extern uint32_t g_energy_discharge;      /* 1037，kWh × 100 */
+extern uint8_t  g_soc;
+extern int16_t  g_temperature;           /* 1039 raw - 40 */
+extern uint16_t g_fault_code;
+extern uint16_t g_charger_state;         /* 1001 桩状态 0正常 1故障 2报警 */
+extern uint16_t g_enable_word;           /* 1023 */
+extern uint16_t g_start_stop_state;      /* 1034 */
+extern uint16_t g_start_stop_control;    /* 1050 R/W 启停 1启动 0停止 */
+extern uint16_t g_work_mode;             /* 1049 */
+extern uint16_t g_capability_word;       /* 1003 */
+extern uint16_t g_module_count;          /* 1004 */
+extern uint32_t g_input_voltage;         /* 1009，0.1V  进线，不是 voltage */
+extern uint32_t g_input_current;         /* 1010，0.01A 进线，不是 current */
+extern uint32_t g_input_power;           /* 1011，0.1kW */
+extern uint32_t g_charge_power_x10;      /* 1024，0.1kW */
 
 /* ── 时间戳 ──
  * ts 字段要的是 Unix 秒。SNTP 对上就是真实 epoch，对不上（无外网）自动退化成
@@ -36,6 +47,7 @@ bool        EEG_TimeIsSynced         ( void );
 /* ── 报文（§5/§6/§8/§9）── */
 bool        EEG_PublishGatewayStatus ( void );
 bool        EEG_PublishDeviceStatus  ( void );
+bool        EEG_PublishRegisters     ( void );
 bool        EEG_PublishAck           ( const char* id_raw, bool ok, int code, const char* msg );
 bool        EEG_PublishEvent         ( const char* level, int code, const char* msg, int temperature );
 

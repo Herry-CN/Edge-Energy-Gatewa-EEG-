@@ -26,7 +26,7 @@ int      led_value        = 0;   /* 兼容旧代码（实际业务层不读它�
 uint8_t  mqtt_flag        = 0;   /* 1=MQTT 连接且订阅成功（SysTick publish 依赖）*/
 
 uint32_t g_current_power   = 0;   /* kW × 10    → 默认 0 (idle) */
-uint32_t g_current_voltage = 2200;/* V  × 10    → 默认 220.0V */
+uint32_t g_current_voltage = 0;   /* V  × 10    → 由寄存器 1028 刷新 */
 uint32_t g_current_current = 0;   /* A  × 100   → 默认 0 (idle) */
 uint8_t  g_onoff_state     = ONOFF_IDLE; /* 默认待机 (value=1) */
 

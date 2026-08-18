@@ -68,7 +68,7 @@ static void rebuild_full_chain(void)
     g_onoff_state   = ONOFF_IDLE;
     g_current_power = 0;
     g_current_current = 0;
-    g_current_voltage = 2200;
+    g_current_voltage = 0;
     LED2_OFF;
 
     /* Re-run full startup sequence (blocks until success) */
@@ -357,6 +357,16 @@ void ESP8266_SendDHT11DataTest(void)
         bool pub_ok = true;
 #if EEG_PROTO_ENABLE
         if (!EEG_PublishDeviceStatus()) pub_ok = false;
+        /* 10 s 原始寄存器慢通道：两次 status 发一次 */
+        {
+            static uint8_t s_reg_div = 0;
+            if (++s_reg_div >= 2u) {
+                s_reg_div = 0;
+                if (!EEG_PublishRegisters()) {
+                    printf("[EEG REG] skipped fail, status still counts\r\n");
+                }
+            }
+        }
 #endif
 #if LEGACY_PROTO_ENABLE
         if (!ESP8266_MQTT_PUB_STATUS()) pub_ok = false;
