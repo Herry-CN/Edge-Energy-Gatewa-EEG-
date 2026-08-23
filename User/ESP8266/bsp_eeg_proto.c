@@ -19,6 +19,7 @@
 #include "./ESP8266/bsp_esp8266.h"
 #include "./devices/charger.h"
 #include "./led/bsp_led.h"
+#include "./config/bsp_config.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -300,7 +301,9 @@ bool EEG_PublishGatewayStatus(void)
         printf("[EEG GW] publish FAILED: %s\r\n", s_pl);
         return false;
     }
-    printf("[EEG GW] %s\r\n", s_pl);
+    if (Config_LogVerbose()) {
+        printf("[EEG GW] %s\r\n", s_pl);
+    }
     return true;
 }
 
@@ -406,7 +409,9 @@ bool EEG_PublishDeviceStatus(void)
         printf("[EEG DEV] publish FAILED: %s\r\n", s_pl);
         return false;
     }
-    printf("[EEG DEV] %s\r\n", s_pl);
+    if (Config_LogVerbose()) {
+        printf("[EEG DEV] %s\r\n", s_pl);
+    }
     return true;
 }
 
@@ -440,7 +445,9 @@ bool EEG_PublishRegisters(void)
         printf("[EEG REG] publish FAILED\r\n");
         return false;
     }
-    printf("[EEG REG] %s\r\n", s_pl);
+    if (Config_LogVerbose()) {
+        printf("[EEG REG] %s\r\n", s_pl);
+    }
     return true;
 }
 

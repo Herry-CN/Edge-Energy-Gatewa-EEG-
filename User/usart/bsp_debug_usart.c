@@ -4,13 +4,13 @@
   * @author  fire
   * @version V1.0
   * @date    2016-xx-xx
-  * @brief   使用串口1，重定向c库printf函数到usart端口，中断接收模式
+  * @brief   使锟矫达拷锟斤拷1锟斤拷锟截讹拷锟斤拷c锟斤拷printf锟斤拷锟斤拷锟斤拷usart锟剿口ｏ拷锟叫断斤拷锟斤拷模式
   ******************************************************************************
   * @attention
   *
-  * 实验平台:野火 STM32 F103 开发板  
-  * 论坛    :http://www.firebbs.cn
-  * 淘宝    :http://firestm32.taobao.com
+  * 实锟斤拷平台:野锟斤拷 STM32 F103 锟斤拷锟斤拷锟斤拷  
+  * 锟斤拷坛    :http://www.firebbs.cn
+  * 锟皆憋拷    :http://firestm32.taobao.com
   *
   ******************************************************************************
   */ 
@@ -22,9 +22,9 @@ UART_HandleTypeDef UartHandle;
 //extern uint8_t ucTemp;  
 
  /**
-  * @brief  DEBUG_USART GPIO 配置,工作模式配置。115200 8-N-1
-  * @param  无
-  * @retval 无
+  * @brief  DEBUG_USART GPIO 锟斤拷锟斤拷,锟斤拷锟斤拷模式锟斤拷锟矫★拷115200 8-N-1
+  * @param  锟斤拷
+  * @retval 锟斤拷
   */  
 void DEBUG_USART_Config(void)
 { 
@@ -38,17 +38,19 @@ void DEBUG_USART_Config(void)
   UartHandle.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
   UartHandle.Init.Mode         = UART_MODE_TX_RX;
   
-  HAL_UART_Init(&UartHandle);
-    
-// /*使能串口接收断 */
-//  __HAL_UART_ENABLE_IT(&UartHandle,UART_IT_RXNE);  
+    HAL_UART_Init(&UartHandle);
+
+    /* USART1 RX for config CLI (DEBUG_USART_IRQHandler fills strUSART_Fram_Record) */
+    HAL_NVIC_SetPriority(DEBUG_USART_IRQ, 0, 1);
+    HAL_NVIC_EnableIRQ(DEBUG_USART_IRQ);
+    __HAL_UART_ENABLE_IT(&UartHandle, UART_IT_RXNE);
 }
 
 
 /**
-  * @brief UART MSP 初始化 
+  * @brief UART MSP 锟斤拷始锟斤拷 
   * @param huart: UART handle
-  * @retval 无
+  * @retval 锟斤拷
   */
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {  
@@ -67,16 +69,16 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
   PA9     ------> USART1_TX
   PA10    ------> USART1_RX 
   */
-  /* 配置Tx引脚为复用功能  */
+  /* 锟斤拷锟斤拷Tx锟斤拷锟斤拷为锟斤拷锟矫癸拷锟斤拷  */
     GPIO_InitStruct.Pin = DEBUG_USART_TX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed =  GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(DEBUG_USART_TX_GPIO_PORT, &GPIO_InitStruct);
     
-    /* 配置Rx引脚为复用功能 */
+    /* 锟斤拷锟斤拷Rx锟斤拷锟斤拷为锟斤拷锟矫癸拷锟斤拷 */
     GPIO_InitStruct.Pin = DEBUG_USART_RX_PIN;
-    GPIO_InitStruct.Mode=GPIO_MODE_AF_INPUT;	//模式要设置为复用输入模式！	
+    GPIO_InitStruct.Mode=GPIO_MODE_AF_INPUT;	//模式要锟斤拷锟斤拷为锟斤拷锟斤拷锟斤拷锟斤拷模式锟斤拷	
     HAL_GPIO_Init(DEBUG_USART_RX_GPIO_PORT, &GPIO_InitStruct); 
   
 
@@ -98,12 +100,12 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 	GPIO_InitStructure.Mode = GPIO_MODE_AF_INPUT;
 	HAL_GPIO_Init(macESP8266_USART_RX_PORT, &GPIO_InitStructure);
  
-//  HAL_NVIC_SetPriority(DEBUG_USART_IRQ ,0,1);	//抢占优先级0，子优先级1
-//  HAL_NVIC_EnableIRQ(DEBUG_USART_IRQ );		    //使能USART1中断通道  
+//  HAL_NVIC_SetPriority(DEBUG_USART_IRQ ,0,1);	//锟斤拷占锟斤拷锟饺硷拷0锟斤拷锟斤拷锟斤拷锟饺硷拷1
+//  HAL_NVIC_EnableIRQ(DEBUG_USART_IRQ );		    //使锟斤拷USART1锟叫讹拷通锟斤拷  
 }
 
 
-/*****************  发送字符串 **********************/
+/*****************  锟斤拷锟斤拷锟街凤拷锟斤拷 **********************/
 void Usart_SendString(uint8_t *str)
 {
 	unsigned int k=0;
@@ -114,16 +116,16 @@ void Usart_SendString(uint8_t *str)
   } while(*(str + k)!='\0');
   
 }
-//重定向c库函数printf到串口DEBUG_USART，重定向后可使用printf函数
+//锟截讹拷锟斤拷c锟解函锟斤拷printf锟斤拷锟斤拷锟斤拷DEBUG_USART锟斤拷锟截讹拷锟斤拷锟斤拷使锟斤拷printf锟斤拷锟斤拷
 int fputc(int ch, FILE *f)
 {
-	/* 发送一个字节数据到串口DEBUG_USART */
+	/* 锟斤拷锟斤拷一锟斤拷锟街斤拷锟斤拷锟捷碉拷锟斤拷锟斤拷DEBUG_USART */
 	HAL_UART_Transmit(&UartHandle, (uint8_t *)&ch, 1, 1000);	
 	
 	return (ch);
 }
 
-//重定向c库函数scanf到串口DEBUG_USART，重写向后可使用scanf、getchar等函数
+//锟截讹拷锟斤拷c锟解函锟斤拷scanf锟斤拷锟斤拷锟斤拷DEBUG_USART锟斤拷锟斤拷写锟斤拷锟斤拷使锟斤拷scanf锟斤拷getchar锟饺猴拷锟斤拷
 int fgetc(FILE *f)
 {		
 	int ch;

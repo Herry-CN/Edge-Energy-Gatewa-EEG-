@@ -8,26 +8,24 @@
 #include "./modbus/modbus_crc.h"
 #include "./rs485/bsp_rs485.h"
 #include "./wdg/bsp_iwdg.h"
+#include "./config/bsp_config.h"
 #include "stm32f1xx.h"
 #include <stdio.h>
 #include <string.h>
 
-#ifndef MB_TRACE
-#define MB_TRACE  1
-#endif
-
 static void mb_dump(const char *tag, const uint8_t *p, uint16_t n)
 {
-#if MB_TRACE
     uint16_t i;
+
+    if (!Config_LogVerbose()) {
+        (void)tag; (void)p; (void)n;
+        return;
+    }
     printf("[MB %s]", tag);
     for (i = 0; i < n; i++) {
         printf(" %02X", p[i]);
     }
     printf("\r\n");
-#else
-    (void)tag; (void)p; (void)n;
-#endif
 }
 
 static int mb_wait_rx(uint32_t timeout_ms)
@@ -36,6 +34,7 @@ static int mb_wait_rx(uint32_t timeout_ms)
 
     while ((HAL_GetTick() - start) < timeout_ms) {
         IWDG_Feed();
+        Config_CliService();
         if (RS485_RxReady()) return MB_OK;
     }
     return MB_ERR_TIMEOUT;
@@ -64,7 +63,9 @@ static int mb_transact(const uint8_t *tx, uint16_t txlen,
 
         rc = mb_wait_rx(MB_TIMEOUT_MS);
         if (rc != MB_OK) {
-            printf("[MB] timeout (try %d)\r\n", attempt + 1);
+            if (Config_LogVerbose()) {
+                printf("[MB] timeout (try %d)\r\n", attempt + 1);
+            }
             continue;
         }
 
@@ -80,7 +81,9 @@ static int mb_transact(const uint8_t *tx, uint16_t txlen,
         if (tx[1] == MB_FC_READ_HOLD && n == txlen && memcmp(rx, tx, n) == 0) {
             rc = mb_wait_rx(MB_TIMEOUT_MS);
             if (rc != MB_OK) {
-                printf("[MB] echo only, no slave reply\r\n");
+                if (Config_LogVerbose()) {
+                    printf("[MB] echo only, no slave reply\r\n");
+                }
                 continue;
             }
             n = RS485_RxLen();
@@ -92,7 +95,9 @@ static int mb_transact(const uint8_t *tx, uint16_t txlen,
 
         rc = mb_check_crc(rx, n);
         if (rc != MB_OK) {
-            printf("[MB] bad CRC\r\n");
+            if (Config_LogVerbose()) {
+                printf("[MB] bad CRC\r\n");
+            }
             continue;
         }
 

@@ -908,6 +908,11 @@
               <FilePath>..\User\devices\charger.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\config\bsp_config.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_esp8266_mqtt.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\User\ESP8266\bsp_esp8266_mqtt.c</FilePath>

@@ -11,6 +11,7 @@
 #include "./ESP8266/bsp_esp8266_test.h"
 #include "./ESP8266/bsp_eeg_proto.h"
 #include "./ESP8266/bsp_esp8266_mqtt.h"
+#include "./config/bsp_config.h"
 #include "./led/bsp_led.h"
 #include "stm32f1xx.h"
 #include <stdio.h>
@@ -153,6 +154,7 @@ static void charger_note_result(int rc, const char *what)
 
 static void charger_dump(const char *tag)
 {
+    if (!Config_LogVerbose()) return;
     printf("[CHG] %s  1001=%u 1003=%u 1004=%u 1009=%u 1010=%u 1023=%u\r\n"
            "      1028U=%u 1029I=%u 1030P=%u  1031soc=%u 1035Ec=%u 1037Ed=%u 1039T=%u\r\n",
            tag,

@@ -15,6 +15,7 @@
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./ESP8266/bsp_esp8266_test.h"
 #include "./ESP8266/bsp_eeg_proto.h"
+#include "./config/bsp_config.h"
 #include <stdlib.h>
 
 #if !EEG_PROTO_ENABLE && !LEGACY_PROTO_ENABLE
@@ -389,10 +390,12 @@ bool ESP8266_MQTT_Publish(const char* topic, const char* payload, int qos, int r
 bool ESP8266_MQTT_USERCFG(void)
 {
     char cStr[384];
+    const EegNetConfig *c = Config_Get();
+
     printf("\r\n[MQTT USERCFG] 8-param V2.2.x syntax attempt: client_id=%s scheme=1 (TCP plaintext)\r\n", MQTT_CLIENT_ID);
     sprintf(cStr,
         "AT+MQTTUSERCFG=0,1,\"%s\",\"%s\",\"%s\",0,0,\"\"",
-        MQTT_CLIENT_ID, MQTT_USER_NAME, MQTT_PASSWD);
+        MQTT_CLIENT_ID, c->mqtt_user, c->mqtt_pass);
     if (ESP8266_Cmd(cStr, "OK", 0, 1200)) {
         printf("[MQTT USERCFG] OK (8-param primary path)\r\n");
         return true;
@@ -404,12 +407,12 @@ bool ESP8266_MQTT_USERCFG(void)
         printf("[MQTT FALLBACK] AT+MQTTCLIENTID FAILED!\r\n");
         return false;
     }
-    sprintf(cStr, "AT+MQTTUSERNAME=0,\"%s\"", MQTT_USER_NAME);
+    sprintf(cStr, "AT+MQTTUSERNAME=0,\"%s\"", c->mqtt_user);
     if (!ESP8266_Cmd(cStr, "OK", 0, 1000)) {
         printf("[MQTT FALLBACK] AT+MQTTUSERNAME FAILED!\r\n");
         return false;
     }
-    sprintf(cStr, "AT+MQTTPASSWORD=0,\"%s\"", MQTT_PASSWD);
+    sprintf(cStr, "AT+MQTTPASSWORD=0,\"%s\"", c->mqtt_pass);
     if (!ESP8266_Cmd(cStr, "OK", 0, 1000)) {
         printf("[MQTT FALLBACK] AT+MQTTPASSWORD FAILED!\r\n");
         return false;
@@ -492,17 +495,18 @@ bool ESP8266_MQTT_CONNCFG(void)
 bool ESP8266_MQTT_CONN(void)
 {
     char cStr[192];
-    sprintf(cStr, "AT+MQTTCONN=0,\"%s\",%d,0", MQTT_BROKERADDRESS, MQTT_PORT);
+    const EegNetConfig *c = Config_Get();
+
+    sprintf(cStr, "AT+MQTTCONN=0,\"%s\",%d,0", c->mqtt_host, (int)c->mqtt_port);
     if (!ESP8266_Cmd(cStr, "OK", 0, 4000)) {
         printf("[MQTT CONN] FAILED! Checklist:\r\n"
-               "  1) Same WiFi LAN as PC? Board must ping 192.168.8.97\r\n"
-               "  2) PC Test-NetConnection 192.168.8.97 -Port 1883 == TcpTestSucceeded : True\r\n"
-               "  3) EMQX auth: user=charge / pass=123456 (or anonymous enabled)\r\n"
-               "  4) ClientID unique (no other device already connected as sim-pile-%s)\r\n",
-               MQTT_DEVICE_ID);
+               "  1) Same WiFi LAN as broker? host=%s port=%u\r\n"
+               "  2) EMQX auth: user=%s (USART1: config set mqtt.user/password)\r\n"
+               "  3) ClientID unique (no other device already connected as sim-pile-%s)\r\n",
+               c->mqtt_host, (unsigned)c->mqtt_port, c->mqtt_user, MQTT_DEVICE_ID);
         return false;
     }
-    printf("[MQTT CONN] OK connected to %s:%d\r\n", MQTT_BROKERADDRESS, MQTT_PORT);
+    printf("[MQTT CONN] OK connected to %s:%u\r\n", c->mqtt_host, (unsigned)c->mqtt_port);
     return true;
 }
 
@@ -626,7 +630,9 @@ bool ESP8266_MQTT_PUB_STATUS(void)
         printf("[MQTT PUB STATUS] FAILED payload: %s\r\n", payload);
         return false;
     }
-    printf("[MQTT PUB STATUS] OK %s\r\n", payload);
+    if (Config_LogVerbose()) {
+        printf("[MQTT PUB STATUS] OK %s\r\n", payload);
+    }
     return true;
 }
 

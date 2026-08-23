@@ -46,8 +46,8 @@
 #include <string.h>
 
 
-uint16_t publish_task_time=0;//���������ʱ�����?
-extern uint8_t publish_flag;//����������?
+uint16_t publish_task_time=0;//���������?�����?
+extern uint8_t publish_flag;//����������?
 
     
 /* Private typedef -----------------------------------------------------------*/
@@ -160,7 +160,7 @@ void SysTick_Handler(void)
     if(mqtt_flag == 1)//mqtt������
     {
         publish_task_time++;
-        if (publish_task_time == 5000)   //DHT11�ɼ���Ҫ�������?��
+        if (publish_task_time == 5000)   //DHT11�?���?�������?��
         {
             publish_task_time=0;
             publish_flag =1;
@@ -170,7 +170,7 @@ void SysTick_Handler(void)
   
 
 /**
-  * @brief  ����1�жϷ�����
+  * @brief  ����1�??�����
   * @param  None
   * @retval None
   */
@@ -195,26 +195,56 @@ void DEBUG_USART_IRQHandler(void)
         dr_taken = 1;
 		
         if ( ( sr & USART_SR_RXNE ) && ( len < ( RX_BUF_MAX_LEN - 1 ) ) )
-        {                       //Ԥ��1���ֽ�д������
-            strUSART_Fram_Record .Data_RX_BUF [ len ]     = ( char ) ucCh;
-            strUSART_Fram_Record .InfBit .FramLength      = len + 1;
-            strUSART_Fram_Record .Data_RX_BUF [ len + 1 ] = '\0';
+        {
+            /* Interactive CLI: finish a line on CR/LF, support backspace. */
+            if ( ucCh == (uint8_t)'\r' || ucCh == (uint8_t)'\n' )
+            {
+                strUSART_Fram_Record .InfBit .FramFinishFlag = 1;
+                if ( UartHandle.Instance->SR & USART_SR_TXE )
+                {
+                    UartHandle.Instance->DR = (uint8_t)'\r';
+                    while ( ( UartHandle.Instance->SR & USART_SR_TXE ) == 0 ) { }
+                    UartHandle.Instance->DR = (uint8_t)'\n';
+                }
+            }
+            else if ( ucCh == (uint8_t)'\b' || ucCh == 0x7Fu )
+            {
+                if ( len > 0 )
+                {
+                    strUSART_Fram_Record .InfBit .FramLength = (uint16_t)(len - 1u);
+                    strUSART_Fram_Record .Data_RX_BUF [ len - 1u ] = '\0';
+                    if ( UartHandle.Instance->SR & USART_SR_TXE )
+                    {
+                        UartHandle.Instance->DR = (uint8_t)'\b';
+                        while ( ( UartHandle.Instance->SR & USART_SR_TXE ) == 0 ) { }
+                        UartHandle.Instance->DR = (uint8_t)' ';
+                        while ( ( UartHandle.Instance->SR & USART_SR_TXE ) == 0 ) { }
+                        UartHandle.Instance->DR = (uint8_t)'\b';
+                    }
+                }
+            }
+            else
+            {
+                strUSART_Fram_Record .Data_RX_BUF [ len ]     = ( char ) ucCh;
+                strUSART_Fram_Record .InfBit .FramLength      = len + 1;
+                strUSART_Fram_Record .Data_RX_BUF [ len + 1 ] = '\0';
+                if ( UartHandle.Instance->SR & USART_SR_TXE )
+                {
+                    UartHandle.Instance->DR = ucCh;
+                }
+            }
         }
     }
 	 	 
-    if ( sr & USART_SR_IDLE )                                         //����֡�������?
-	{
+    /* Drain IDLE so the flag cannot stick, but do not treat it as end-of-line.
+     * USART1 IDLEIE is off; leftover IDLE + next RXNE would otherwise split
+     * typed CLI commands at every keystroke pause. Finish only on CR/LF. */
+    if ( sr & USART_SR_IDLE )
+    {
         if ( !dr_taken )
         {
             ( void ) UartHandle.Instance->DR;
         }
-
-        strUSART_Fram_Record .InfBit .FramFinishFlag = 1;		
-		
-        /* IDLE is already cleared by the SR read at the top of the handler
-         * plus the DR read above. __HAL_UART_CLEAR_IDLEFLAG() must not be used
-         * here: it reads DR a second time and would swallow a byte that
-         * arrived in the meantime. */
     }
 }
 

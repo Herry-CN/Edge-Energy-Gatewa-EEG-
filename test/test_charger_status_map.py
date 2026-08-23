@@ -78,6 +78,39 @@ def test_mbserver_screenshot():
     assert got["soc"] == 0, got
 
 
+# 计划附图：mbserver 现值（401029=4000 等）→ 烧录单点轮询后 MQTT 应报这些工程量
+MBSERVER_LIVE = {
+    1001: 0, 1002: 0, 1003: 257, 1004: 4,
+    1009: 3800, 1010: 6500, 1011: 405,
+    1023: 257, 1024: 400,
+    1028: 4000, 1029: 9600, 1030: 384,
+    1031: 62, 1034: 0,
+    1035: 57920, 1037: 56789, 1039: 75,
+    1049: 0, 1050: 0,
+}
+
+
+def test_mbserver_live_screenshot():
+    got = status_from_regs(MBSERVER_LIVE)
+    assert got["state"] == "normal", got
+    assert got["state_code"] == 0, got
+    assert got["fault_code"] == 0, got
+    assert got["enable"] == 257, got
+    assert got["voltage"] == "400.0", got
+    assert got["current"] == "96.00", got
+    assert got["power"] == "38.4", got
+    assert got["soc"] == 62, got
+    assert got["energy_charge"] == "5792.0", got
+    assert got["energy_discharge"] == "567.89", got
+    assert got["temperature"] == 35, got
+    assert got["mode"] == "chg", got
+    assert got["mode_code"] == 0, got
+    assert got["start_stop"] == 0, got
+    assert got["start_stop_control"] == 0, got
+    assert got["input_voltage"] == "380.0", got
+    assert got["input_current"] == "65.00", got
+
+
 def test_pile_status_1001():
     assert status_from_regs({1001: 0})["state"] == "normal"
     assert status_from_regs({1001: 1})["state"] == "fault"
@@ -92,6 +125,7 @@ def test_pile_status_1001():
 
 if __name__ == "__main__":
     test_mbserver_screenshot()
+    test_mbserver_live_screenshot()
     test_pile_status_1001()
     print("ok  expected status for current mbserver:")
     d = status_from_regs(MBSERVER)

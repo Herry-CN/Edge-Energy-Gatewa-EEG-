@@ -7,7 +7,7 @@
 
 /********************************** 用户需要设置的参数 **********************************/
 
-/* ================= WiFi 层 ================= */
+/* ================= WiFi 层（出厂默认；运行时以 Flash/CLI Config_Get() 为准） ================= */
 #define      macUser_ESP8266_ApSsid                       "feifei"
 #define      macUser_ESP8266_ApPwd                        "lijialing"
 
@@ -19,7 +19,7 @@
  */
 #define      MQTT_DEVICE_ID                               "PILE-001"
 
-/* ================= MQTT Broker 网络层 ================= */
+/* ================= MQTT Broker 网络层（出厂默认；换网用 USART1 config set mqtt.host/port） ================= */
 #define      MQTT_BROKERADDRESS                           "192.168.8.97"
 #define      MQTT_PORT                                    1883
 #define      MQTT_KEEPALIVE                               60
@@ -126,5 +126,6 @@ extern volatile uint8_t ucTcpClosedFlag;
 /********************************** 测试函数声明 ***************************************/
 void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void);
 void ESP8266_SendDHT11DataTest(void);
+void ESP8266_ApplyNetworkConfig(void);   /* config apply：按 Flash/RAM 配置重连 WiFi+MQTT */
 
 #endif /* __BSP_ESP8266_TEST_H */

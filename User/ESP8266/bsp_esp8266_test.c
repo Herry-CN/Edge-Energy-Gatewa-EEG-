@@ -24,6 +24,8 @@
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./ESP8266/bsp_eeg_proto.h"
 #include "./devices/charger.h"
+#include "./config/bsp_config.h"
+#include "./wdg/bsp_iwdg.h"
 
 /* ================ 对外/导入全局变量 ================ */
 DHT11_Data_TypeDef DHT11_Data;
@@ -203,16 +205,81 @@ static void diagnostic_mode(void)
 }
 #endif
 
+/* WiFi/MQTT 失败时留窗口给 USART1 config CLI */
+static void cfg_wait_window_ms(uint32_t ms)
+{
+    uint32_t t0 = HAL_GetTick();
+
+    while ((HAL_GetTick() - t0) < ms) {
+        IWDG_Feed();
+        Config_CliService();
+    }
+}
+
+void ESP8266_ApplyNetworkConfig(void)
+{
+    static uint8_t busy = 0;
+    const EegNetConfig *c;
+
+    if (busy) {
+        printf("[CFG] apply already in progress\r\n");
+        return;
+    }
+    busy = 1;
+    mqtt_flag = 0;
+    Config_SetLogVerbose(1);
+    c = Config_Get();
+
+    printf("[CFG] reconnect wifi=%s  mqtt=%s:%u\r\n",
+           c->wifi_ssid, c->mqtt_host, (unsigned)c->mqtt_port);
+
+    ESP8266_MQTT_CLEAN();
+    HAL_Delay(200);
+
+    while (!ESP8266_JoinAP((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
+        printf("[CFG] WiFi join FAIL. config set wifi.ssid / wifi.password\r\n");
+        cfg_wait_window_ms(2000);
+        c = Config_Get();
+    }
+    while (!ESP8266_MQTT_USERCFG()) {
+        cfg_wait_window_ms(300);
+    }
+    ESP8266_MQTT_CONNCFG();
+    while (!ESP8266_MQTT_CONN()) {
+        printf("[CFG] MQTT CONN FAIL. config set mqtt.host / mqtt.port / mqtt.user\r\n");
+        cfg_wait_window_ms(2000);
+    }
+    while (!ESP8266_MQTT_SUB()) {
+        ESP8266_MQTT_CLEAN();
+        HAL_Delay(200);
+        (void)ESP8266_MQTT_USERCFG();
+        ESP8266_MQTT_CONNCFG();
+        (void)ESP8266_MQTT_CONN();
+        cfg_wait_window_ms(300);
+    }
+
+    MQTT_RxQueue_Reset();
+    mqtt_flag = 1;
+    s_last_health_ms = HAL_GetTick();
+    s_last_pub_ok_ms = HAL_GetTick();
+    busy = 0;
+    Config_SetLogVerbose(0);
+    printf("[CFG] apply done, MQTT online\r\n"
+           "[LOG] USART1 quiet  (config show / help;  log verbose  to restore dumps)\r\n");
+}
+
 /* ================ 对外：启动阶段一次性初始化（阻塞直到全链路 OK） ================ */
 void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
 {
+    const EegNetConfig *c = Config_Get();
+
     printf("\r\n\r\n================== CHARGING PILE MQTT STARTUP ==================\r\n"
              "\r\n[WiFi SSID] : %s"
              "\r\n[Device ID] : %s"
-             "\r\n[Broker]    : %s:%d"
+             "\r\n[Broker]    : %s:%u"
              "\r\n==============================================================\r\n",
-             macUser_ESP8266_ApSsid, MQTT_DEVICE_ID,
-             MQTT_BROKERADDRESS, MQTT_PORT);
+             c->wifi_ssid, MQTT_DEVICE_ID,
+             c->mqtt_host, (unsigned)c->mqtt_port);
 
 #if ESP8266_RUN_DIAGNOSTIC
     diagnostic_mode();  /* Diagnostic mode: NEVER returns (blocks forever) */
@@ -248,9 +315,15 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
     printf("\r\nEnable DHCP CURRENT ......\r\n");
     while (!ESP8266_DHCP_CUR());
 
-    /* 4) Join WiFi (block until success) */
+    /* 4) Join WiFi（失败时 USART1 可改 SSID/密码后再试，不必烧录） */
     printf("\r\nConnect WiFi (check SSID/passwd/2.4G only!) ......\r\n");
-    while (!ESP8266_JoinAP(macUser_ESP8266_ApSsid, macUser_ESP8266_ApPwd));
+    c = Config_Get();
+    while (!ESP8266_JoinAP((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
+        printf("[WiFi] join FAIL ssid=%s  -> USART1: config set wifi.ssid / wifi.password, config save\r\n",
+               c->wifi_ssid);
+        cfg_wait_window_ms(2000);
+        c = Config_Get();
+    }
 
     /* 5) MQTT layer: USERCFG -> CONNCFG(explicit keepalive/clean) -> CONN -> SUB(control+controll double-L) */
     printf("\r\nMQTT USERCFG (ClientID/username/password)......\r\n");
@@ -260,7 +333,10 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
     ESP8266_MQTT_CONNCFG();   /* Function does 3 retries internally, SOFT FAILS on purpose (non-critical) */
 
     printf("\r\nMQTT CONNECT to broker ......\r\n");
-    while (!ESP8266_MQTT_CONN());
+    while (!ESP8266_MQTT_CONN()) {
+        printf("[MQTT] CONN FAIL  -> USART1: config set mqtt.host / mqtt.port / mqtt.user\r\n");
+        cfg_wait_window_ms(2000);
+    }
 
     printf("\r\nMQTT SUBSCRIBE (double-L: control + controll, QoS=%d)......\r\n",
            MQTT_SUBSCRIBE_QOS);
@@ -298,12 +374,19 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
 
     printf("\r\nESP8266 FULL CHAIN CONFIGURED OK\r\n");
     printf("Awaiting MQTT onoff commands (value=0 start / value=2 stop)......\r\n");
+    Config_SetLogVerbose(0);
+    printf("[LOG] USART1 quiet  (type config show / help;  log verbose  to restore dumps)\r\n");
     LED1_OFF;   /* Red LED off = startup complete */
 }
 
 /* ================ 对外：主循环每 5s 调用（读 DHT11 + publish status） ================ */
 void ESP8266_SendDHT11DataTest(void)
 {
+    /* CLI first: do not wait behind Modbus/MQTT dumps. */
+    if (Config_CliPoll()) {
+        ESP8266_ApplyNetworkConfig();
+    }
+
     /* (1) Process MQTT downlink in main loop first, never inside USART3 ISR.
      * Evidence showed the old ISR->MQTT_RECV->PUB_REPLY path could block after
      * the first control command. */
@@ -337,11 +420,13 @@ void ESP8266_SendDHT11DataTest(void)
 
     /* ① DHT11：Modbus 在线时只打日志，温度改用寄存器 1039 */
     if (DHT11_Read_TempAndHumidity(&DHT11_Data) == SUCCESS) {
-        printf("\r\n[DHT11] Humi=%d.%d %%RH  Temp=%d.%d C | onoff_state=%u mb=%u\r\n",
-               DHT11_Data.humi_int, DHT11_Data.humi_deci,
-               DHT11_Data.temp_int, DHT11_Data.temp_deci,
-               (unsigned)g_onoff_state,
-               charger_is_online() ? 1u : 0u);
+        if (Config_LogVerbose()) {
+            printf("\r\n[DHT11] Humi=%d.%d %%RH  Temp=%d.%d C | onoff_state=%u mb=%u\r\n",
+                   DHT11_Data.humi_int, DHT11_Data.humi_deci,
+                   DHT11_Data.temp_int, DHT11_Data.temp_deci,
+                   (unsigned)g_onoff_state,
+                   charger_is_online() ? 1u : 0u);
+        }
         if (!charger_is_online()) {
             g_temperature = (int16_t)DHT11_Data.temp_int;
         }

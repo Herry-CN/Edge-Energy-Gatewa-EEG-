@@ -29,6 +29,7 @@
 #include "./ESP8266/bsp_esp8266_mqtt.h"
 #include "./wdg/bsp_iwdg.h"
 #include "./devices/charger.h"
+#include "./config/bsp_config.h"
 
 
 uint8_t publish_flag =0;//���������־
@@ -47,7 +48,9 @@ int main(void)
     /* USART1 @ 115200 8-N-1 for debug printf */
     DEBUG_USART_Config();
     printf("\r\n--- EEG gateway (STM32F103ZE + ESP8266 MQTT + Modbus-RTU master) ---\r\n"
-             "MQTT: edit ESP8266/bsp_esp8266_test.h   RS485: USART2 9600 PA2/PA3 DE=PC2+PD11\r\n");
+             "MQTT/WiFi: USART1 config CLI   RS485: USART2 9600 PA2/PA3 DE=PC2+PD11\r\n");
+    Config_Load();
+    Config_PrintHelp();
     /* Arm the watchdog before the (blocking) startup chain, and report why the
      * board came up. An "IWDG WATCHDOG TIMEOUT" line in the serial log is the
      * quickest way to tell a real lock-up from a power glitch. */

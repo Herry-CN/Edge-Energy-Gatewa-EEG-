@@ -6,7 +6,8 @@
 #include <stdbool.h>
 #include "./dwt_delay/core_delay.h"
 #include "./wdg/bsp_iwdg.h"
-#include "./led/bsp_led.h" 
+#include "./led/bsp_led.h"
+#include "./config/bsp_config.h" 
 
 static void                   ESP8266_GPIO_Config                 ( void );
 static void                   ESP8266_USART_Config                ( void );
@@ -236,6 +237,7 @@ static void ESP8266_AT_Poll ( const char * reply1, const char * reply2, uint32_t
         }
 
         IWDG_Feed();
+        Config_CliService();
     }
     while ( ( HAL_GetTick() - start ) < waittime );
 }
@@ -304,7 +306,9 @@ bool ESP8266_Cmd ( char * cmd, char * reply1, char * reply2, uint32_t waittime )
     
     s_at_cmd_in_flight = 0;
     
-    macPC_Usart ( "[AT RX] %s", strEsp8266_Fram_Record .Data_RX_BUF );
+    if (Config_LogVerbose()) {
+        macPC_Usart ( "[AT RX] %s", strEsp8266_Fram_Record .Data_RX_BUF );
+    }
 
     /* The reply is deliberately left in the buffer: callers such as the health
        check and MQTT_SUB inspect it for URCs like +MQTTDISCONNECTED right after
