@@ -221,9 +221,77 @@ void MQTT_RxQueue_Reset(void)
     __set_PRIMASK(primask);
 }
 
+/* Espressif MQTT-AT: +MQTTCONN:<LinkID>,<state>,...
+ *   0 uninit  1 configured  2 disconnected  3/4 connected
+ * Some AT builds use the short form +MQTTCONN:0,1 meaning "connected". */
+static int mqtt_parse_conn_state(const char *buf)
+{
+    const char *p;
+
+    if (!buf) return -1;
+    p = strstr(buf, "+MQTTCONN:");
+    if (!p) p = strstr(buf, "MQTTCONN:");
+    if (!p) return -1;
+    p = strchr(p, ':');
+    if (!p) return -1;
+    p++;
+    while (*p && *p != ',') p++;
+    if (*p != ',') return -1;
+    p++;
+    if (*p < '0' || *p > '9') return -1;
+    return atoi(p);
+}
+
+static bool mqtt_state_is_connected(int state, const char *buf)
+{
+    const char *p;
+
+    if (buf && strstr(buf, "+MQTTCONNECTED")) return true;
+    if (state == 3 || state == 4) return true;
+    /* short-form +MQTTCONN:0,1  (no scheme/host fields) */
+    if (state == 1 && buf) {
+        p = strstr(buf, "MQTTCONN:");
+        if (!p) return false;
+        p = strchr(p, ':');
+        if (!p) return false;
+        p++;
+        while (*p && *p != ',') p++;
+        if (*p == ',') p++;
+        while (*p >= '0' && *p <= '9') p++;
+        if (*p != ',') return true;
+    }
+    return false;
+}
+
+static void mqtt_dump_text(const char *tag, const char *p)
+{
+    char tmp[200];
+    int n = 0;
+
+    if (!p) p = "";
+    while (p[n] && n < (int)sizeof(tmp) - 1) {
+        tmp[n] = (p[n] == '\r' || p[n] == '\n') ? '|' : p[n];
+        n++;
+    }
+    tmp[n] = '\0';
+    printf("[%s] %s\r\n", tag, tmp);
+}
+
+bool ESP8266_MQTT_IsOnline(void)
+{
+    const char *buf;
+
+    if (!ESP8266_Cmd("AT+MQTTCONN?", "OK", 0, 1500)) {
+        return false;
+    }
+    buf = strEsp8266_Fram_Record.Data_RX_BUF;
+    if (strstr(buf, "+MQTTDISCONNECTED")) return false;
+    return mqtt_state_is_connected(mqtt_parse_conn_state(buf), buf);
+}
+
 static bool mqtt_link_is_online(void)
 {
-    return ESP8266_Cmd("AT+MQTTCONN?", "MQTTCONN:0,1", NULL, 1200);
+    return ESP8266_MQTT_IsOnline();
 }
 
 /* ──────────────── 工具：安全查找 JSON 字段整数值 ──────────────
@@ -490,24 +558,60 @@ bool ESP8266_MQTT_CONNCFG(void)
  *  AT+MQTTCONN : 连接 Broker (192.168.8.97:1883)
  *  §2 端口 1883（内网明文）
  *  AT 语法：AT+MQTTCONN=<LinkID>,"host",<port>,<reconnect>
- *     reconnect=0（手动重连，我们自己有监控逻辑）
+ *     reconnect=1（WiFi 短闪时由模块自动拉回 MQTT，避免再 CWJAP 把会话掐掉）
  * ============================================================ */
 bool ESP8266_MQTT_CONN(void)
 {
     char cStr[192];
+    char rx_copy[240];
     const EegNetConfig *c = Config_Get();
+    const char *buf;
+    int st;
 
-    sprintf(cStr, "AT+MQTTCONN=0,\"%s\",%d,0", c->mqtt_host, (int)c->mqtt_port);
-    if (!ESP8266_Cmd(cStr, "OK", 0, 4000)) {
-        printf("[MQTT CONN] FAILED! Checklist:\r\n"
-               "  1) Same WiFi LAN as broker? host=%s port=%u\r\n"
-               "  2) EMQX auth: user=%s (USART1: config set mqtt.user/password)\r\n"
-               "  3) ClientID unique (no other device already connected as sim-pile-%s)\r\n",
-               c->mqtt_host, (unsigned)c->mqtt_port, c->mqtt_user, MQTT_DEVICE_ID);
-        return false;
+    /* Already up: a previous MQTTCONN often reaches EMQX while this
+     * firmware missed OK and then CLEAN'd the live session in a loop. */
+    if (ESP8266_MQTT_IsOnline()) {
+        printf("[MQTT CONN] already online, skip MQTTCONN\r\n");
+        return true;
     }
-    printf("[MQTT CONN] OK connected to %s:%u\r\n", c->mqtt_host, (unsigned)c->mqtt_port);
-    return true;
+
+    sprintf(cStr, "AT+MQTTCONN=0,\"%s\",%d,1", c->mqtt_host, (int)c->mqtt_port);
+    /* Success = OK or +MQTTCONNECTED. ERROR must abort (do not OR it).
+     * 12 s ceiling: 4 s was shorter than some CONNACK paths, so STM32
+     * declared FAIL while EMQX already listed the client. */
+    if (ESP8266_CmdMatch(cStr, "+MQTTCONNECTED", "OK", "ERROR", 12000)) {
+        HAL_Delay(150); /* allow +MQTTDISCONNECTED to land if CONNACK was a false start */
+        buf = strEsp8266_Fram_Record.Data_RX_BUF;
+        if (!strstr(buf, "+MQTTDISCONNECTED") &&
+            (strstr(buf, "+MQTTCONNECTED") || !strstr(buf, "ERROR"))) {
+            printf("[MQTT CONN] OK connected to %s:%u cid=%s\r\n",
+                   c->mqtt_host, (unsigned)c->mqtt_port, MQTT_CLIENT_ID);
+            return true;
+        }
+    }
+
+    buf = strEsp8266_Fram_Record.Data_RX_BUF;
+    strncpy(rx_copy, buf ? buf : "", sizeof(rx_copy) - 1);
+    rx_copy[sizeof(rx_copy) - 1] = '\0';
+
+    /* ERROR "already connected" / CONNACK won the race after we stopped waiting */
+    HAL_Delay(400);
+    if (ESP8266_MQTT_IsOnline()) {
+        printf("[MQTT CONN] OK (session already up after AT error) cid=%s\r\n",
+               MQTT_CLIENT_ID);
+        return true;
+    }
+
+    mqtt_dump_text("MQTT CONN RX", rx_copy);
+    mqtt_dump_text("MQTT CONN?", strEsp8266_Fram_Record.Data_RX_BUF);
+    st = mqtt_parse_conn_state(strEsp8266_Fram_Record.Data_RX_BUF);
+    printf("[MQTT CONN] FAILED! state=%d cid=%s Checklist:\r\n"
+           "  1) Same WiFi LAN as broker? host=%s port=%u\r\n"
+           "  2) EMQX auth: user=%s (USART1: config set mqtt.user/password)\r\n"
+           "  3) ClientID unique (no other device already connected as %s)\r\n",
+           st, MQTT_CLIENT_ID,
+           c->mqtt_host, (unsigned)c->mqtt_port, c->mqtt_user, MQTT_CLIENT_ID);
+    return false;
 }
 
 /* ============================================================

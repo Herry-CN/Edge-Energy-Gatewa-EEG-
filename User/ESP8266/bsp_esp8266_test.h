@@ -47,6 +47,10 @@
  * 后端切完、MQTTX 对照验证过之后，把 LEGACY 关掉即可，代码不用动。 */
 #define      EEG_PROTO_ENABLE                             1
 #define      LEGACY_PROTO_ENABLE                          0
+/* ESP8266 MQTT-AT + CIPMUX=0：启动阶段 AT+CIPSNTPCFG 访问公网 NTP 会把刚连上
+ * 的 WiFi/MQTT 打掉（实测 WIFI DISCONNECT + LWT online:false）。内网无 NTP 时
+ * ts 用开机秒数即可。需要校时时再改成 1，并保证路由能出网。 */
+#define      EEG_SNTP_ENABLE                              0
 
 /* ================= EEG V1.0 主题树（Doc/MQTT 网关通信协议 V1.0.md §3） =================
  * eeg/{site}/{gateway}/{device_type}/{device_id}/{channel}

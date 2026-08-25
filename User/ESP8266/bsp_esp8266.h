@@ -12,7 +12,7 @@ extern UART_HandleTypeDef Uart3Handle;
 #pragma anon_unions
 #endif
 
-/******************************* ESP8266 数据类型定义 ***************************/
+/******************************* ESP8266 ??????????? ***************************/
 typedef enum{
 	STA,
   AP,
@@ -46,10 +46,10 @@ typedef enum{
 
 
 
-/******************************* ESP8266 外部全局变量声明 ***************************/
-#define RX_BUF_MAX_LEN     2048                                     //最大接收缓存字节数
+/******************************* ESP8266 ???????????? ***************************/
+#define RX_BUF_MAX_LEN     2048                                     //??????????????
 
-extern struct  STRUCT_USARTx_Fram                                  //串口数据帧的处理结构体
+extern struct  STRUCT_USARTx_Fram                                  //??????????????????
 {
 	char  Data_RX_BUF [ RX_BUF_MAX_LEN ];
 	
@@ -80,7 +80,7 @@ extern volatile uint32_t g_esp8266_rx_drop;
 extern struct STRUCT_USARTx_Fram strUSART_Fram_Record;
 extern struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record;
 
-/******************************** ESP8266 连接引脚定义 ***********************************/
+/******************************** ESP8266 ??????????? ***********************************/
 #define      macESP8266_CH_PD_CLK_ENABLE()                    __HAL_RCC_GPIOG_CLK_ENABLE()  
 #define      macESP8266_CH_PD_PORT                            GPIOG
 #define      macESP8266_CH_PD_PIN                             GPIO_PIN_13
@@ -105,7 +105,7 @@ extern struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record;
 
 
 
-/*********************************************** ESP8266 函数宏定义 *******************************************/
+/*********************************************** ESP8266 ???????? *******************************************/
 #define     macESP8266_Usart( fmt, ... )           USART_printf ( macESP8266_USARTx, fmt, ##__VA_ARGS__ ) 
 #define     macPC_Usart( fmt, ... )                printf ( fmt, ##__VA_ARGS__ )
 //#define     macPC_Usart( fmt, ... )                
@@ -118,13 +118,15 @@ extern struct  STRUCT_USARTx_Fram strEsp8266_Fram_Record;
 
 
 
-/****************************************** ESP8266 函数声明 ***********************************************/
+/****************************************** ESP8266 ???????? ***********************************************/
 void                     ESP8266_Init                        ( void );
 void                     ESP8266_Rst                         ( void );
 bool                     ESP8266_Cmd                         ( char * cmd, char * reply1, char * reply2, uint32_t waittime );
+bool                     ESP8266_CmdMatch                    ( char * cmd, const char * good1, const char * good2, const char * bad, uint32_t waittime );
 bool                     ESP8266_AT_Test                     ( void );
 bool                     ESP8266_Net_Mode_Choose             ( ENUM_Net_ModeTypeDef enumMode );
 bool                     ESP8266_JoinAP                      ( char * pSSID, char * pPassWord );
+bool                     ESP8266_WifiEnsure                  ( char * pSSID, char * pPassWord );
 bool                     ESP8266_BuildAP                     ( char * pSSID, char * pPassWord, ENUM_AP_PsdMode_TypeDef enunPsdMode );
 bool                     ESP8266_Enable_MultipleId           ( FunctionalState enumEnUnvarnishTx );
 bool                     ESP8266_Link_Server                 ( ENUM_NetPro_TypeDef enumE, char * ip, char * ComNum, ENUM_ID_NO_TypeDef id);

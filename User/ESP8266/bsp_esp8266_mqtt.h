@@ -53,6 +53,7 @@ bool ESP8266_MQTT_USERCFG  ( void );         /* AT+MQTTUSERCFG (8 params). fallb
 bool ESP8266_MQTT_CONNCFG  ( void );         /* AT+MQTTCONNCFG (8 params): keepalive=60, clean=true (doc §2 mandatory explicit) */
 bool ESP8266_MQTT_CLEAN    ( void );         /* AT+MQTTCLEAN : close MQTT session on module side before reconnect */
 bool ESP8266_MQTT_CONN     ( void );         /* AT+MQTTCONN : connect broker:port, reconnect=0 (manual) */
+bool ESP8266_MQTT_IsOnline ( void );         /* AT+MQTTCONN? : true if link-0 is actually connected */
 bool ESP8266_MQTT_SUB      ( void );         /* AT+MQTTSUB : dual-topic control + controll (QoS=1) per §4.2 */
 bool ESP8266_MQTT_PUB_STATUS ( void );       /* AT+MQTTPUB : status JSON 4-field integer × multiplier, QoS1 retain1 */
 bool ESP8266_MQTT_PUB_REPLY(int value, const char* result); /* control reply JSON -> /control, QoS1 retain0 */

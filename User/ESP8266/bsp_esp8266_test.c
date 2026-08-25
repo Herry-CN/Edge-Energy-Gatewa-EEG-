@@ -53,6 +53,8 @@ static uint32_t s_last_rx_drop = 0;  /* 上次报告过的下行丢帧数 */
  * 1 = DIAGNOSTIC MODE (print AT syntax tests, block forever at LED1 blink) */
 #define ESP8266_RUN_DIAGNOSTIC    0
 
+static void mqtt_prepare_reconnect(void);  /* 断网后 CLEAN + WiFi + USERCFG */
+
 /* ================ 内部：链路全重建（看门狗兜底）================ */
 static void rebuild_full_chain(void)
 {
@@ -83,7 +85,6 @@ static void rebuild_full_chain(void)
  * If not online: first try quick CONN+SUB reconnect; if still fails -> watchdog full rebuild. */
 static void do_health_check(void)
 {
-    char okbuf[96];
     if (HAL_GetTick() - s_last_health_ms < HEALTH_INTERVAL_MS) return;
     s_last_health_ms = HAL_GetTick();
 
@@ -94,19 +95,13 @@ static void do_health_check(void)
         s_last_rx_drop = g_mqtt_rx_dropped;
     }
 
-    /* A recent successful publish is stronger evidence than this firmware's
-     * ambiguous AT+MQTTCONN? response format. */
+    /* A recent successful publish is stronger evidence than MQTTCONN?. */
     if ((HAL_GetTick() - s_last_pub_ok_ms) < HEALTH_INTERVAL_MS) {
         s_health_fail = 0;
         return;
     }
 
-    snprintf(okbuf, sizeof(okbuf), "OK");
-    if (!ucTcpClosedFlag &&
-        ESP8266_Cmd("AT+MQTTCONN?", okbuf, "ERROR", 1200) &&
-        !strstr((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "+MQTTDISCONNECTED") &&
-        !strstr((const char*)strEsp8266_Fram_Record.Data_RX_BUF, "CLOSED"))
-    {
+    if (!ucTcpClosedFlag && ESP8266_MQTT_IsOnline()) {
         s_health_fail = 0;
         return;
     }
@@ -114,22 +109,14 @@ static void do_health_check(void)
     printf("\r\n[HEALTH] MQTT NOT ONLINE. fail=%u/%u. Try quick reconnect...\r\n",
            s_health_fail, HEALTH_FAIL_THRESHOLD);
 
-    /* Quick reconnect for this firmware:
-       after AT+MQTTCLEAN=0, MQTT runtime state may be cleared, so re-issue
-       USERCFG + CONNCFG + CONN + SUB as a full MQTT-layer restore. */
-    ESP8266_MQTT_CLEAN();
-    HAL_Delay(300);
-    if (ESP8266_MQTT_USERCFG() &&
-        ESP8266_MQTT_CONNCFG() &&
-        ESP8266_MQTT_CONN() &&
-        ESP8266_MQTT_SUB()) {
+    mqtt_prepare_reconnect();
+    if (ESP8266_MQTT_CONN() && ESP8266_MQTT_SUB()) {
         s_health_fail = 0;
-        MQTT_RxQueue_Reset();   /* 上一段会话残留的帧不要带到新会话里执行 */
+        MQTT_RxQueue_Reset();
         mqtt_flag = 1;
-        printf("[HEALTH] quick reconnect OK (USERCFG+CONNCFG+CONN+SUB)\r\n");
+        printf("[HEALTH] quick reconnect OK (wifi+USERCFG+CONNCFG+CONN+SUB)\r\n");
         return;
     }
-    /* Quick reconnect failed: hit threshold -> watchdog FULL rebuild */
     if (s_health_fail >= HEALTH_FAIL_THRESHOLD) {
         rebuild_full_chain();
     }
@@ -216,6 +203,32 @@ static void cfg_wait_window_ms(uint32_t ms)
     }
 }
 
+/* 断网后：WiFi 仍有 IP（CIPSTATUS 2/3/4）绝不能再 CWJAP，否则会 WIFI DISCONNECT
+ * 把 MQTT 一起掐掉。只有 STATUS:5 才等自恢复 / 再关联。已在线则不 CLEAN。 */
+static void mqtt_prepare_reconnect(void)
+{
+    const EegNetConfig *c = Config_Get();
+
+    if (ESP8266_MQTT_IsOnline()) {
+        printf("[RECONN] MQTT already online, skip CLEAN/USERCFG\r\n");
+        return;
+    }
+
+    ESP8266_MQTT_CLEAN();
+    cfg_wait_window_ms(300);
+
+    if (!ESP8266_WifiEnsure((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
+        printf("[RECONN] WiFi ensure FAIL ssid=%s\r\n", c->wifi_ssid);
+        return;
+    }
+
+    if (!ESP8266_MQTT_USERCFG()) {
+        printf("[RECONN] USERCFG failed, will retry on next CONN round\r\n");
+    }
+    ESP8266_MQTT_CONNCFG();
+    cfg_wait_window_ms(150);
+}
+
 void ESP8266_ApplyNetworkConfig(void)
 {
     static uint8_t busy = 0;
@@ -233,27 +246,20 @@ void ESP8266_ApplyNetworkConfig(void)
     printf("[CFG] reconnect wifi=%s  mqtt=%s:%u\r\n",
            c->wifi_ssid, c->mqtt_host, (unsigned)c->mqtt_port);
 
-    ESP8266_MQTT_CLEAN();
-    HAL_Delay(200);
-
-    while (!ESP8266_JoinAP((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
+    while (!ESP8266_WifiEnsure((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
         printf("[CFG] WiFi join FAIL. config set wifi.ssid / wifi.password\r\n");
         cfg_wait_window_ms(2000);
         c = Config_Get();
     }
-    while (!ESP8266_MQTT_USERCFG()) {
-        cfg_wait_window_ms(300);
-    }
-    ESP8266_MQTT_CONNCFG();
+    mqtt_prepare_reconnect();
     while (!ESP8266_MQTT_CONN()) {
         printf("[CFG] MQTT CONN FAIL. config set mqtt.host / mqtt.port / mqtt.user\r\n");
-        cfg_wait_window_ms(2000);
+        cfg_wait_window_ms(1500);
+        mqtt_prepare_reconnect();
     }
     while (!ESP8266_MQTT_SUB()) {
-        ESP8266_MQTT_CLEAN();
-        HAL_Delay(200);
-        (void)ESP8266_MQTT_USERCFG();
-        ESP8266_MQTT_CONNCFG();
+        printf("[CFG] MQTT SUB FAIL, prepare + CONN then retry SUB\r\n");
+        mqtt_prepare_reconnect();
         (void)ESP8266_MQTT_CONN();
         cfg_wait_window_ms(300);
     }
@@ -318,7 +324,7 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
     /* 4) Join WiFi（失败时 USART1 可改 SSID/密码后再试，不必烧录） */
     printf("\r\nConnect WiFi (check SSID/passwd/2.4G only!) ......\r\n");
     c = Config_Get();
-    while (!ESP8266_JoinAP((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
+    while (!ESP8266_WifiEnsure((char *)c->wifi_ssid, (char *)c->wifi_pwd)) {
         printf("[WiFi] join FAIL ssid=%s  -> USART1: config set wifi.ssid / wifi.password, config save\r\n",
                c->wifi_ssid);
         cfg_wait_window_ms(2000);
@@ -335,22 +341,19 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
     printf("\r\nMQTT CONNECT to broker ......\r\n");
     while (!ESP8266_MQTT_CONN()) {
         printf("[MQTT] CONN FAIL  -> USART1: config set mqtt.host / mqtt.port / mqtt.user\r\n");
-        cfg_wait_window_ms(2000);
+        /* 断网抖动后必须 CLEAN + 必要时重连 WiFi，不能盲重试 MQTTCONN */
+        cfg_wait_window_ms(1500);
+        mqtt_prepare_reconnect();
     }
 
     printf("\r\nMQTT SUBSCRIBE (double-L: control + controll, QoS=%d)......\r\n",
            MQTT_SUBSCRIBE_QOS);
     while (!ESP8266_MQTT_SUB()) {
         printf("[STARTUP] SUB stage failed. Rebuild MQTT layer before retry.\r\n");
-        ESP8266_MQTT_CLEAN();
-        HAL_Delay(300);
-        while (!ESP8266_MQTT_USERCFG()) {
-            HAL_Delay(300);
-        }
-        ESP8266_MQTT_CONNCFG();
-        HAL_Delay(150);
+        mqtt_prepare_reconnect();
         while (!ESP8266_MQTT_CONN()) {
-            HAL_Delay(300);
+            cfg_wait_window_ms(1000);
+            mqtt_prepare_reconnect();
         }
         HAL_Delay(150);
     }
@@ -361,15 +364,20 @@ void ESP8266_StaTcpClient_Unvarnish_ConfigTest(void)
     s_last_pub_ok_ms = HAL_GetTick();
 
 #if EEG_PROTO_ENABLE
-    /* 6) 对时 + 网关上线（§5）。SNTP 拉不到就退化成开机秒数，不阻塞启动。 */
+    /* 先发网关在线（retain），再考虑 SNTP。ESP8266 MQTT-AT 上 CIPSNTPCFG
+     * 打公网 NTP 会把刚连上的 WiFi 打掉，broker 只留下 LWT online:false。 */
+    s_last_gw_ms = HAL_GetTick();
+    EEG_PublishGatewayStatus();
+#if EEG_SNTP_ENABLE
     printf("\r\nSNTP time sync (ts field needs Unix seconds)......\r\n");
     EEG_TimeInit();
-    HAL_Delay(1500);              /* 给模块一点时间完成首次对时 */
+    cfg_wait_window_ms(1500);
     if (!EEG_TimeSync()) {
         printf("[EEG SNTP] not synced yet - ts falls back to uptime, will retry every 60s\r\n");
     }
-    s_last_gw_ms = HAL_GetTick();
-    EEG_PublishGatewayStatus();
+#else
+    printf("[EEG SNTP] skipped (LAN MQTT; ts uses uptime). Set EEG_SNTP_ENABLE=1 if NTP is reachable.\r\n");
+#endif
 #endif
 
     printf("\r\nESP8266 FULL CHAIN CONFIGURED OK\r\n");

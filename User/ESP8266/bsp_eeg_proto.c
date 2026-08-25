@@ -161,6 +161,7 @@ bool EEG_TimeSync(void)
 
 void EEG_TimeTask(void)
 {
+#if EEG_SNTP_ENABLE
     uint32_t now = HAL_GetTick();
 
     if (!s_time_synced) {
@@ -168,6 +169,9 @@ void EEG_TimeTask(void)
         return;
     }
     if ((now - s_tick_at_sync) >= EEG_SNTP_RESYNC_MS) EEG_TimeSync();
+#else
+    (void)s_last_try_ms;
+#endif
 }
 
 uint32_t EEG_Timestamp(void)

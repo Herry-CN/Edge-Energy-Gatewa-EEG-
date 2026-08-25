@@ -324,6 +324,56 @@ bool ESP8266_Cmd ( char * cmd, char * reply1, char * reply2, uint32_t waittime )
 	
 }
 
+/*
+ * Like ESP8266_Cmd, but good1/good2 are success keywords (OR) and bad ends the
+ * wait as failure. Needed by AT+MQTTCONN: some firmware prints +MQTTCONNECTED
+ * without a trailing OK, while ERROR must not be treated as success (the
+ * two-reply form of ESP8266_Cmd ORs both strings).
+ */
+bool ESP8266_CmdMatch ( char * cmd, const char * good1, const char * good2,
+                        const char * bad, uint32_t waittime )
+{
+    uint32_t start    = HAL_GetTick();
+    uint16_t seen_len = 0xFFFF;
+    bool hit_good     = false;
+    bool hit_bad      = false;
+
+    ESP8266_ATFrame_Reset();
+    s_at_cmd_in_flight = 1;
+    macESP8266_Usart ( "%s\r\n", cmd );
+
+    do
+    {
+        uint16_t len = strEsp8266_Fram_Record .InfBit .FramLength;
+
+        if ( len != seen_len )
+        {
+            const char * buf = strEsp8266_Fram_Record .Data_RX_BUF;
+            seen_len = len;
+            hit_good = ( ( good1 != 0 ) && ( strstr ( buf, good1 ) != NULL ) ) ||
+                       ( ( good2 != 0 ) && ( strstr ( buf, good2 ) != NULL ) );
+            hit_bad  = ( bad != 0 ) && ( strstr ( buf, bad ) != NULL );
+            if ( hit_good || hit_bad )
+            {
+                HAL_Delay ( macESP8266_AT_SETTLE_MS );
+                break;
+            }
+        }
+
+        IWDG_Feed();
+        Config_CliService();
+    }
+    while ( ( HAL_GetTick() - start ) < waittime );
+
+    s_at_cmd_in_flight = 0;
+
+    if ( Config_LogVerbose() ) {
+        macPC_Usart ( "[AT RX] %s", strEsp8266_Fram_Record .Data_RX_BUF );
+    }
+
+    return hit_good;
+}
+
 
 /*
  * ��������ESP8266_AT_Test
@@ -346,8 +396,13 @@ bool ESP8266_AT_Test ( void )
 	char count=0;
 	
 	macESP8266_RST_HIGH_LEVEL();	
-    printf("\r\nAT����.....\r\n");
-	HAL_Delay ( 2000 );
+    printf("\r\nAT test ......\r\n");
+    {
+        uint32_t t0 = HAL_GetTick();
+        while ((HAL_GetTick() - t0) < 2000u) {
+            IWDG_Feed();
+        }
+    }
 	while ( count < 10 )
 	{
         printf("\r\nAT���Դ��� %d......\r\n", count);
@@ -406,8 +461,53 @@ bool ESP8266_JoinAP ( char * pSSID, char * pPassWord )
 
 	sprintf ( cCmd, "AT+CWJAP=\"%s\",\"%s\"", pSSID, pPassWord );
 	
-	return ESP8266_Cmd ( cCmd, "OK", NULL, 5000 );
+	return ESP8266_Cmd ( cCmd, "OK", NULL, 15000 );
 	
+}
+
+static void ESP8266_DelayFeed ( uint32_t ms )
+{
+    uint32_t t0 = HAL_GetTick();
+    while ( ( HAL_GetTick() - t0 ) < ms ) {
+        IWDG_Feed();
+    }
+}
+
+/*
+ * CIPSTATUS 2/3/4 = WiFi 仍有 IP（4 只是 MQTT TCP 掉了）。此时再发 CWJAP
+ * 会先 WIFI DISCONNECT，把刚连上的 MQTT 一起掐掉。
+ * STATUS:5 = 电台已掉，先等模块自恢复，超时再 CWJAP，GOT IP 后再等 2s 开 TCP。
+ */
+bool ESP8266_WifiEnsure ( char * pSSID, char * pPassWord )
+{
+    uint8_t  st;
+    uint32_t t0;
+
+    st = ESP8266_Get_LinkStatus();
+    if ( st == 2 || st == 3 || st == 4 ) {
+        printf("[WiFi] already associated (CIPSTATUS=%u), skip CWJAP\r\n", (unsigned)st);
+        return true;
+    }
+
+    printf("[WiFi] CIPSTATUS=%u, wait auto-reconnect (skip immediate CWJAP)...\r\n",
+           (unsigned)st);
+    t0 = HAL_GetTick();
+    while ( ( HAL_GetTick() - t0 ) < 8000u ) {
+        ESP8266_DelayFeed(400);
+        st = ESP8266_Get_LinkStatus();
+        if ( st == 2 || st == 3 || st == 4 ) {
+            printf("[WiFi] auto-recovered CIPSTATUS=%u, settle 2s\r\n", (unsigned)st);
+            ESP8266_DelayFeed(2000);
+            return true;
+        }
+    }
+
+    printf("[WiFi] CWJAP %s\r\n", pSSID);
+    if ( !ESP8266_JoinAP(pSSID, pPassWord) ) {
+        return false;
+    }
+    ESP8266_DelayFeed(2000);
+    return true;
 }
 
 
@@ -539,19 +639,17 @@ uint8_t ESP8266_Get_LinkStatus ( void )
 {
 	if ( ESP8266_Cmd ( "AT+CIPSTATUS", "OK", 0, 500 ) )
 	{
-		if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:2\r\n" ) )
-			return 2;
-		
-		else if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:3\r\n" ) )
-			return 3;
-		
-		else if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:4\r\n" ) )
-			return 4;		
-
+		if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:2" ) )
+			return 2;   /* Got IP */
+		else if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:3" ) )
+			return 3;   /* TCP connected */
+		else if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:4" ) )
+			return 4;   /* TCP closed, WiFi still up */
+		else if ( strstr ( strEsp8266_Fram_Record .Data_RX_BUF, "STATUS:5" ) )
+			return 5;   /* WiFi disconnected */
 	}
-	
+
 	return 0;
-	
 }
 
 
