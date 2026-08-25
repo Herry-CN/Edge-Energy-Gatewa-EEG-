@@ -46,7 +46,7 @@
  * 两个都开 = 双发：同一份数据同时走 eeg/... 新主题树和 /device/... 旧主题，
  * 后端切完、MQTTX 对照验证过之后，把 LEGACY 关掉即可，代码不用动。 */
 #define      EEG_PROTO_ENABLE                             1
-#define      LEGACY_PROTO_ENABLE                          1
+#define      LEGACY_PROTO_ENABLE                          0
 
 /* ================= EEG V1.0 主题树（Doc/MQTT 网关通信协议 V1.0.md §3） =================
  * eeg/{site}/{gateway}/{device_type}/{device_id}/{channel}

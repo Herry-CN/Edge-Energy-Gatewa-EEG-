@@ -77,7 +77,7 @@
 #define CHG_SS_STANDBY                  1u
 #define CHG_SS_STOP                     2u
 
-#define CHG_POLL_MS                     100u
+#define CHG_POLL_MS                     500u
 #define CHG_FAIL_OFFLINE                3u
 
 void     charger_init         ( void );
